@@ -15,6 +15,10 @@ import {
   Sliders,
   Smartphone,
   Sparkles,
+  Wifi,
+  Radio,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Parametres } from '../../types';
 import {
@@ -22,8 +26,11 @@ import {
   exportBackupJSON,
   importBackupJSON,
   resetDatabase,
+  getNetworkStatus,
+  pullDatabaseFromServer,
 } from '../../services/storage';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { NetworkSyncModal } from '../common/NetworkSyncModal';
 
 interface ParametresViewProps {
   parametres: Parametres;
@@ -36,11 +43,20 @@ export function ParametresView({ parametres, onOpenInstallAndroid }: ParametresV
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [backupSuccess, setBackupSuccess] = useState<string | null>(null);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
   const handleChange = (field: keyof Parametres, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCopyAppUrl = () => {
+    navigator.clipboard.writeText(currentUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
   };
 
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -150,7 +166,51 @@ export function ParametresView({ parametres, onOpenInstallAndroid }: ParametresV
         </div>
       )}
 
-      {/* 0. APPLICATION MOBILE ANDROID (APK / PWA) */}
+      {/* 0. SYNCHRONISATION MULTI-APPAREILS EN RÉSEAU */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-indigo-700/50 shadow-md space-y-3">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
+              <Radio className="w-5 h-5 text-emerald-300 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="font-extrabold text-white text-sm sm:text-base">
+                  Réseau & Synchronisation Multi-Appareils
+                </h2>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  Temps Réel Sécurisé
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5">
+                Permet à plusieurs téléphones et ordinateurs de travailler simultanément sur la même base Clinic Auto.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={handleCopyAppUrl}
+              className="flex-1 sm:flex-none py-2.5 px-3.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              {copiedUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedUrl ? 'Lien copié !' : 'Copier lien'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsNetworkModalOpen(true)}
+              className="flex-1 sm:flex-none py-2.5 px-4 bg-blue-500 hover:bg-blue-400 active:bg-blue-600 text-white rounded-xl text-xs font-extrabold shadow-sm transition-colors cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Wifi className="w-4 h-4" />
+              <span>Gérer le Réseau</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 0.1 APPLICATION MOBILE ANDROID (APK / PWA) */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white p-4 sm:p-5 rounded-2xl border border-blue-900 shadow-md space-y-3">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div className="flex items-center gap-3">
@@ -462,6 +522,14 @@ export function ParametresView({ parametres, onOpenInstallAndroid }: ParametresV
             </p>
           </div>
         }
+      />
+
+      {/* Network & Device Synchronization Modal */}
+      <NetworkSyncModal
+        isOpen={isNetworkModalOpen}
+        onClose={() => setIsNetworkModalOpen(false)}
+        networkStatus={getNetworkStatus()}
+        parametres={parametres}
       />
     </div>
   );

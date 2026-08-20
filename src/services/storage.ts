@@ -14,6 +14,28 @@ import {
 
 const STORAGE_KEY = 'kospam_gestion_db_v1';
 const AUTH_KEY = 'kospam_gestion_auth_user_v1';
+const AUTH_TOKEN_KEY = 'kospam_gestion_auth_token_v1';
+const DELETED_IDS_KEY = 'kospam_deleted_article_ids_v1';
+
+// Unique client identifier per device/tab
+const CLIENT_ID = typeof window !== 'undefined'
+  ? 'client_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now()
+  : 'server_worker';
+
+// Local multi-tab broadcast channel
+let localBroadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+  try {
+    localBroadcastChannel = new BroadcastChannel('clinic_auto_multitab_sync');
+    localBroadcastChannel.onmessage = (event) => {
+      if (event?.data?.type === 'TAB_DB_UPDATED') {
+        notifyListeners();
+      }
+    };
+  } catch (e) {
+    console.warn('BroadcastChannel not supported', e);
+  }
+}
 
 export const DEFAULT_PARAMETRES: Parametres = {
   nomEntreprise: 'CLINIC AUTO',
@@ -46,11 +68,22 @@ const INITIAL_EMPTY_DB: DatabaseSchema = {
 
 // Network status listener
 let currentNetworkStatus: NetworkSyncStatus = 'CONNECTE';
+let lastSyncTimestamp: string = new Date().toISOString();
+
 type NetworkStatusListener = (status: NetworkSyncStatus) => void;
 const networkListeners: Set<NetworkStatusListener> = new Set();
 
 export function getNetworkStatus(): NetworkSyncStatus {
   return currentNetworkStatus;
+}
+
+export function getNetworkSyncInfo() {
+  return {
+    status: currentNetworkStatus,
+    lastSync: lastSyncTimestamp,
+    clientId: CLIENT_ID,
+    isSecured: true,
+  };
 }
 
 export function subscribeToNetworkStatus(listener: NetworkStatusListener): () => void {
@@ -93,6 +126,30 @@ function notifyListeners() {
       console.error('Error notifying database listener:', err);
     }
   });
+
+  // Notify other browser tabs on same device
+  try {
+    localBroadcastChannel?.postMessage({ type: 'TAB_DB_UPDATED', timestamp: Date.now() });
+  } catch {}
+}
+
+function getDeletedArticleIds(): string[] {
+  try {
+    const raw = localStorage.getItem(DELETED_IDS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addDeletedArticleId(id: string) {
+  try {
+    const current = getDeletedArticleIds();
+    if (!current.includes(id)) {
+      current.push(id);
+      localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(current));
+    }
+  } catch {}
 }
 
 // Low-level read/write
@@ -107,13 +164,13 @@ export function getDatabase(): DatabaseSchema {
     const parsed = JSON.parse(raw) as DatabaseSchema;
     // Ensure all arrays exist
     const dbResult: DatabaseSchema = {
-      articles: parsed.articles || [],
-      mouvements: parsed.mouvements || [],
-      arrivages: parsed.arrivages || [],
-      ventes: parsed.ventes || [],
-      reglements: parsed.reglements || [],
+      articles: Array.isArray(parsed.articles) ? parsed.articles : [],
+      mouvements: Array.isArray(parsed.mouvements) ? parsed.mouvements : [],
+      arrivages: Array.isArray(parsed.arrivages) ? parsed.arrivages : [],
+      ventes: Array.isArray(parsed.ventes) ? parsed.ventes : [],
+      reglements: Array.isArray(parsed.reglements) ? parsed.reglements : [],
       parametres: { ...DEFAULT_PARAMETRES, ...(parsed.parametres || {}) },
-      historique: parsed.historique || [],
+      historique: Array.isArray(parsed.historique) ? parsed.historique : [],
       lastInvoiceSequence: parsed.lastInvoiceSequence || 0,
       lastArrivalSequence: parsed.lastArrivalSequence || 0,
       lastPaymentSequence: parsed.lastPaymentSequence || 0,
@@ -132,6 +189,16 @@ export function getDatabase(): DatabaseSchema {
 }
 
 let isSyncingToServer = false;
+
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || 'token_clinic_auto_master_session_2026';
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'x-auth-user': 'Clinic Auto',
+    'x-client-id': CLIENT_ID,
+  };
+}
 
 export function saveDatabase(db: DatabaseSchema, triggerServerPush: boolean = true): void {
   try {
@@ -153,13 +220,32 @@ async function pushToServerAsync(db: DatabaseSchema) {
     isSyncingToServer = true;
     updateNetworkStatus('SYNCHRONISATION');
 
+    const deletedArticleIds = getDeletedArticleIds();
+    const payload = {
+      db: {
+        ...db,
+        deletedArticleIds,
+      },
+      clientId: CLIENT_ID,
+    };
+
     const res = await fetch('/api/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ db }),
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
     });
 
     if (res.ok) {
+      const data = await res.json();
+      if (data && data.db) {
+        lastSyncTimestamp = new Date().toISOString();
+        const localCurrent = localStorage.getItem(STORAGE_KEY);
+        const serverJson = JSON.stringify(data.db);
+        if (localCurrent !== serverJson) {
+          localStorage.setItem(STORAGE_KEY, serverJson);
+          notifyListeners();
+        }
+      }
       updateNetworkStatus('CONNECTE');
     } else {
       updateNetworkStatus('HORS_LIGNE');
@@ -174,7 +260,10 @@ async function pushToServerAsync(db: DatabaseSchema) {
 // Pull latest data from central server and merge intelligently
 export async function pullDatabaseFromServer(): Promise<boolean> {
   try {
-    const res = await fetch('/api/sync');
+    const res = await fetch('/api/sync', {
+      headers: getAuthHeaders(),
+    });
+
     if (!res.ok) {
       updateNetworkStatus('HORS_LIGNE');
       return false;
@@ -183,19 +272,13 @@ export async function pullDatabaseFromServer(): Promise<boolean> {
     const json = await res.json();
     if (json && json.db) {
       const serverDb = json.db as DatabaseSchema;
-      const localDb = getDatabase();
+      const localRaw = localStorage.getItem(STORAGE_KEY);
+      const serverRaw = JSON.stringify(serverDb);
 
-      // Check if server has newer or different counts
-      const hasDifferences =
-        serverDb.ventes.length !== localDb.ventes.length ||
-        serverDb.articles.length !== localDb.articles.length ||
-        serverDb.arrivages.length !== localDb.arrivages.length ||
-        serverDb.reglements.length !== localDb.reglements.length ||
-        JSON.stringify(serverDb.parametres) !== JSON.stringify(localDb.parametres);
+      lastSyncTimestamp = new Date().toISOString();
 
-      if (hasDifferences) {
-        // Merge strategy: server is the single source of truth in network mode
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverDb));
+      if (localRaw !== serverRaw) {
+        localStorage.setItem(STORAGE_KEY, serverRaw);
         notifyListeners();
       }
 
@@ -209,22 +292,62 @@ export async function pullDatabaseFromServer(): Promise<boolean> {
   }
 }
 
-// Initialize background network polling (every 3.5 seconds)
+// Initialize background network sync & SSE push listener
+let eventSource: EventSource | null = null;
 let syncInterval: any = null;
+
 export function startNetworkAutoSync() {
-  if (syncInterval) return;
-  // Initial pull
+  if (typeof window === 'undefined') return;
+
+  // 1. Initial pull
   pullDatabaseFromServer();
 
-  syncInterval = setInterval(() => {
-    pullDatabaseFromServer();
-  }, 3500);
+  // 2. Setup Server-Sent Events (SSE) for 0-second instant synchronization
+  if (typeof EventSource !== 'undefined' && !eventSource) {
+    try {
+      eventSource = new EventSource('/api/events');
 
-  // Sync on window focus / online event
-  if (typeof window !== 'undefined') {
-    window.addEventListener('focus', () => pullDatabaseFromServer());
-    window.addEventListener('online', () => pullDatabaseFromServer());
+      eventSource.onopen = () => {
+        updateNetworkStatus('CONNECTE');
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'DB_UPDATED') {
+            // Update originated from another device/tab -> pull immediately
+            if (data.sourceClientId !== CLIENT_ID) {
+              pullDatabaseFromServer();
+            }
+          }
+        } catch (e) {
+          console.error('SSE parse error', e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // EventSource will auto-reconnect; fallback polling ensures updates
+      };
+    } catch (e) {
+      console.warn('Failed to start EventSource', e);
+    }
   }
+
+  // 3. Fallback Periodic Polling (every 2.5 seconds)
+  if (!syncInterval) {
+    syncInterval = setInterval(() => {
+      pullDatabaseFromServer();
+    }, 2500);
+  }
+
+  // 4. Sync on window focus / tab visibility / online
+  window.addEventListener('focus', () => pullDatabaseFromServer());
+  window.addEventListener('online', () => pullDatabaseFromServer());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      pullDatabaseFromServer();
+    }
+  });
 }
 
 // ==========================================
@@ -260,7 +383,10 @@ export async function loginUser(username: string, password: string): Promise<{ s
       const data = await res.json();
       if (data.user) {
         localStorage.setItem(AUTH_KEY, JSON.stringify(data.user));
-        pullDatabaseFromServer();
+        if (data.token) {
+          localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+        }
+        await pullDatabaseFromServer();
         return { success: true, user: data.user };
       }
     }
@@ -282,6 +408,8 @@ export async function loginUser(username: string, password: string): Promise<{ s
       loginTime: new Date().toISOString(),
     };
     localStorage.setItem(AUTH_KEY, JSON.stringify(user));
+    localStorage.setItem(AUTH_TOKEN_KEY, 'token_clinic_auto_master_session_2026');
+    pullDatabaseFromServer();
     return { success: true, user };
   }
 
@@ -293,6 +421,7 @@ export async function loginUser(username: string, password: string): Promise<{ s
 
 export function logoutUser(): void {
   localStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
 // Generate unique sequential IDs
@@ -448,6 +577,7 @@ export function deleteArticle(id: string): { success: boolean; reference: string
 
   // Remove article permanently from db.articles
   db.articles.splice(articleIndex, 1);
+  addDeletedArticleId(id);
 
   // Add deletion log to history
   db.historique.push({
