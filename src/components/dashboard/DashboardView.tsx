@@ -4,6 +4,7 @@ import {
   ShoppingCart,
   DollarSign,
   Package,
+  ClipboardCheck,
   AlertTriangle,
   Calendar,
   Plus,
@@ -350,6 +351,92 @@ export function DashboardView({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* 5. DERNIER INVENTAIRE PHYSIQUE */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3 sm:col-span-2">
+          {(() => {
+            const lastInventory = (db.inventaires && db.inventaires.length > 0) ? db.inventaires[0] : null;
+            return (
+              <>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+                      <ClipboardCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h2 className="font-extrabold text-slate-900 text-sm">DERNIER INVENTAIRE PHYSIQUE</h2>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {lastInventory
+                          ? `${lastInventory.numeroInventaire} • ${formatDate(lastInventory.date || lastInventory.createdAt)}`
+                          : 'Aucun inventaire réalisé'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('inventaire')}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
+                  >
+                    Gérer l'inventaire ➔
+                  </button>
+                </div>
+
+                {lastInventory ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                    <div className="p-2 bg-slate-50 rounded-xl">
+                      <span className="text-[10px] text-slate-500 font-medium block">Statut</span>
+                      <div className="mt-1">
+                        {lastInventory.status === 'VALIDE' ? (
+                          <Badge variant="success" size="sm">Validé</Badge>
+                        ) : (
+                          <Badge variant="warning" size="sm">En cours</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-2 bg-slate-50 rounded-xl">
+                      <span className="text-[10px] text-slate-500 font-medium block">Articles Comptés</span>
+                      <div className="font-extrabold text-slate-900 text-sm mt-0.5">
+                        {lastInventory.nbArticlesComptes} / {lastInventory.nbArticlesTotal}
+                      </div>
+                    </div>
+                    <div className="p-2 bg-slate-50 rounded-xl">
+                      <span className="text-[10px] text-slate-500 font-medium block">Écarts (Surplus / Manque)</span>
+                      <div className="font-bold text-xs mt-0.5">
+                        <span className="text-emerald-700">+{lastInventory.totalQuantiteSurplus}</span> /{' '}
+                        <span className="text-rose-600">{lastInventory.totalQuantiteManquante}</span>
+                      </div>
+                    </div>
+                    <div className="p-2 bg-slate-50 rounded-xl">
+                      <span className="text-[10px] text-slate-500 font-medium block">Impact Financier Net</span>
+                      <div
+                        className={`font-black text-xs mt-0.5 ${
+                          lastInventory.valeurEcartNet < 0
+                            ? 'text-rose-600'
+                            : lastInventory.valeurEcartNet > 0
+                            ? 'text-emerald-700'
+                            : 'text-slate-700'
+                        }`}
+                      >
+                        {formatMontant(lastInventory.valeurEcartNet, parametres.devise)}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-2 text-center flex items-center justify-between text-xs text-slate-500">
+                    <span>Aucun inventaire physique enregistré. Réalisez un inventaire pour ajuster vos stocks réels.</span>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('inventaire')}
+                      className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl font-bold hover:bg-blue-100 transition-colors"
+                    >
+                      Démarrer
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 

@@ -17,7 +17,8 @@ export type MouvementType =
   | 'ARRIVAGE' 
   | 'VENTE' 
   | 'ANNULATION_VENTE' 
-  | 'AJUSTEMENT';
+  | 'AJUSTEMENT'
+  | 'AJUSTEMENT_INVENTAIRE';
 
 export interface MouvementStock {
   id: string;
@@ -30,7 +31,54 @@ export interface MouvementStock {
   stockApres: number;
   date: string;
   motif?: string;
-  referenceDoc?: string; // e.g. FAC-2026-000001 or ARR-2026-0001
+  referenceDoc?: string; // e.g. FAC-2026-000001, ARR-2026-0001, or INV-2026-000001
+}
+
+export type StatutLigneInventaire = 'CONFORME' | 'SURPLUS' | 'MANQUANT' | 'NON_COMPTE';
+
+export interface LigneInventaire {
+  id: string;
+  articleId: string;
+  reference: string;
+  designation: string;
+  affectation: string;
+  codeBarre?: string;
+  prixVente: number;
+  stockVirtuel: number; // Quantity recorded at inventory time
+  stockReel: number | null; // null if not counted yet
+  ecart: number | null; // stockReel - stockVirtuel (null if stockReel is null)
+  statut: StatutLigneInventaire;
+  valeurEcart: number; // ecart * prixVente (0 if non compté)
+  note?: string;
+}
+
+export type InventaireStatus = 'EN_COURS' | 'VALIDE' | 'ANNULE';
+
+export interface Inventaire {
+  id: string;
+  numeroInventaire: string; // e.g. INV-2026-000001
+  date: string;
+  utilisateur: string;
+  status: InventaireStatus;
+  lignes: LigneInventaire[];
+  
+  // Summary KPIs
+  nbArticlesTotal: number;
+  nbArticlesComptes: number;
+  nbArticlesNonComptes: number;
+  nbArticlesConformes: number;
+  nbArticlesAvecEcart: number;
+  totalQuantiteManquante: number; // negative sum of missing units
+  totalQuantiteSurplus: number; // positive sum of surplus units
+  valeurManquants: number; // positive sum in Ar
+  valeurSurplus: number; // positive sum in Ar
+  valeurEcartNet: number; // valeurSurplus - valeurManquants
+  
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  valideAt?: string;
+  validePar?: string;
 }
 
 export interface Arrivage {
@@ -159,12 +207,14 @@ export interface DatabaseSchema {
   arrivages: Arrivage[];
   ventes: Vente[];
   reglements: Reglement[];
+  inventaires?: Inventaire[];
   parametres: Parametres;
   historique: HistoriqueAction[];
   users?: AppUser[];
   lastInvoiceSequence: number;
   lastArrivalSequence: number;
   lastPaymentSequence: number;
+  lastInventorySequence?: number;
   deletedArticleIds?: string[];
   version: string;
 }

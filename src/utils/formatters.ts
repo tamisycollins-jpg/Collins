@@ -10,6 +10,8 @@ export function formatMontant(amount: number | undefined | null, devise: string 
   return `${formatted} ${devise}`;
 }
 
+export const formatCurrency = formatMontant;
+
 export function formatDate(dateString: string | undefined | null): string {
   if (!dateString) return '-';
   try {

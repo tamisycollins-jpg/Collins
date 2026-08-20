@@ -29,6 +29,7 @@ const defaultDb = {
   ventes: [],
   reglements: [],
   mouvements: [],
+  inventaires: [],
   parametres: {
     nomEntreprise: 'CLINIC AUTO',
     slogan: 'Gestion Dépositaire & Vente Pièces / Services',
@@ -54,6 +55,7 @@ const defaultDb = {
   lastInvoiceSequence: 0,
   lastArrivalSequence: 0,
   lastPaymentSequence: 0,
+  lastInventorySequence: 0,
   deletedArticleIds: [] as string[],
   version: '1.0.0',
 };
@@ -339,6 +341,31 @@ function mergeEntities(incomingDb: any) {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
+  // Merge Inventaires (by id)
+  if (!Array.isArray(currentDb.inventaires)) {
+    currentDb.inventaires = [];
+  }
+  const serverInventaires = new Map<string, any>(currentDb.inventaires.map((inv: any) => [inv.id, inv]));
+  if (Array.isArray(incomingDb.inventaires)) {
+    incomingDb.inventaires.forEach((inv: any) => {
+      if (!inv || !inv.id) return;
+      const existing = serverInventaires.get(inv.id);
+      if (!existing) {
+        serverInventaires.set(inv.id, inv);
+      } else {
+        // If already validated on server, keep VALIDE status
+        if (existing.status === 'VALIDE' && inv.status !== 'VALIDE') {
+          serverInventaires.set(inv.id, existing);
+        } else {
+          serverInventaires.set(inv.id, { ...existing, ...inv });
+        }
+      }
+    });
+  }
+  currentDb.inventaires = Array.from(serverInventaires.values()).sort(
+    (a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
+  );
+
   // Merge Historique (by id)
   const serverHist = new Map<string, any>(currentDb.historique.map((h: any) => [h.id, h]));
   if (Array.isArray(incomingDb.historique)) {
@@ -367,6 +394,11 @@ function mergeEntities(incomingDb: any) {
     incomingDb.lastPaymentSequence || 0,
     currentDb.reglements.length
   );
+  currentDb.lastInventorySequence = Math.max(
+    currentDb.lastInventorySequence || 0,
+    incomingDb.lastInventorySequence || 0,
+    currentDb.inventaires?.length || 0
+  );
 
   // Parameters
   if (incomingDb.parametres) {
@@ -386,6 +418,14 @@ function generateNextInvoiceNumber(): { invoiceNumber: string; newSeq: number } 
   return { invoiceNumber: `FAC-${year}-${pad}`, newSeq: nextSeq };
 }
 
+// Helper to generate Inventory Number (INV-YYYY-000001)
+function generateNextInventoryNumber(): { inventoryNumber: string; newSeq: number } {
+  const year = new Date().getFullYear();
+  const nextSeq = (currentDb.lastInventorySequence || currentDb.inventaires?.length || 0) + 1;
+  const pad = String(nextSeq).padStart(6, '0');
+  return { inventoryNumber: `INV-${year}-${pad}`, newSeq: nextSeq };
+}
+
 // ============================================================
 // API ROUTES
 // ============================================================
@@ -401,6 +441,7 @@ app.get('/api/health', (req, res) => {
     totalVentes: currentDb.ventes?.length || 0,
     totalArrivages: currentDb.arrivages?.length || 0,
     totalReglements: currentDb.reglements?.length || 0,
+    totalInventaires: currentDb.inventaires?.length || 0,
     currency: currentDb.parametres?.devise || 'Ar',
     usersCount: serverUsers.length,
   });
@@ -665,6 +706,232 @@ app.post('/api/transactions/sale', (req, res) => {
   res.json({
     success: true,
     vente: newVente,
+    db: currentDb,
+    version: dbVersion,
+    lastUpdatedAt,
+  });
+});
+
+// 4.1 ATOMIC TRANSACTION: Create or Save Inventory Draft
+app.post('/api/transactions/inventory/save-draft', (req, res) => {
+  const caller = getAuthenticatedUser(req);
+  const { inventaire, clientId } = req.body || {};
+
+  if (!inventaire || !inventaire.id) {
+    return res.status(400).json({ success: false, message: 'Données d’inventaire invalides.' });
+  }
+
+  if (!Array.isArray(currentDb.inventaires)) {
+    currentDb.inventaires = [];
+  }
+
+  const existingIndex = currentDb.inventaires.findIndex((inv: any) => inv.id === inventaire.id);
+  if (existingIndex >= 0) {
+    // If already validated on server, do not overwrite with draft
+    if (currentDb.inventaires[existingIndex].status === 'VALIDE') {
+      return res.status(409).json({
+        success: false,
+        message: 'Cet inventaire est déjà validé et verrouillé.',
+        inventaire: currentDb.inventaires[existingIndex],
+      });
+    }
+    currentDb.inventaires[existingIndex] = {
+      ...currentDb.inventaires[existingIndex],
+      ...inventaire,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    // Assign sequential number if needed
+    if (!inventaire.numeroInventaire) {
+      const { inventoryNumber, newSeq } = generateNextInventoryNumber();
+      inventaire.numeroInventaire = inventoryNumber;
+      currentDb.lastInventorySequence = newSeq;
+    }
+    currentDb.inventaires.unshift({
+      ...inventaire,
+      status: 'EN_COURS',
+      utilisateur: inventaire.utilisateur || caller.username,
+      createdAt: inventaire.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  dbVersion += 1;
+  lastUpdatedAt = new Date().toISOString();
+  persistServerDb();
+
+  broadcastDatabaseUpdate(clientId, 'DB_UPDATED');
+
+  res.json({
+    success: true,
+    inventaire: existingIndex >= 0 ? currentDb.inventaires[existingIndex] : currentDb.inventaires[0],
+    db: currentDb,
+    version: dbVersion,
+  });
+});
+
+// 4.2 ATOMIC TRANSACTION: Validate Inventory & Apply Stock Adjustments
+app.post('/api/transactions/inventory/validate', (req, res) => {
+  const caller = getAuthenticatedUser(req);
+  if (caller.role === 'CONSULTATION') {
+    return res.status(403).json({ success: false, message: 'Le compte en consultation ne peut pas valider d’inventaire.' });
+  }
+
+  const { inventaireId, lignes, notes, clientId } = req.body || {};
+  if (!inventaireId) {
+    return res.status(400).json({ success: false, message: 'ID d’inventaire manquant.' });
+  }
+
+  if (!Array.isArray(currentDb.inventaires)) {
+    currentDb.inventaires = [];
+  }
+
+  const targetInventaire = currentDb.inventaires.find((inv: any) => inv.id === inventaireId);
+  if (!targetInventaire) {
+    return res.status(404).json({ success: false, message: 'Inventaire introuvable.' });
+  }
+
+  // ATOMIC LOCK: Prevent double validation
+  if (targetInventaire.status === 'VALIDE') {
+    return res.status(409).json({
+      success: false,
+      code: 'ALREADY_VALIDATED',
+      message: 'Cet inventaire a déjà été validé et appliqué.',
+      inventaire: targetInventaire,
+    });
+  }
+
+  const linesToProcess = Array.isArray(lignes) && lignes.length > 0 ? lignes : targetInventaire.lignes;
+  const now = new Date().toISOString();
+
+  // Process counted articles and apply adjustments
+  let nbArticlesComptes = 0;
+  let nbArticlesConformes = 0;
+  let nbArticlesAvecEcart = 0;
+  let totalQuantiteManquante = 0;
+  let totalQuantiteSurplus = 0;
+  let valeurManquants = 0;
+  let valeurSurplus = 0;
+
+  const processedLignes: any[] = [];
+
+  for (const item of linesToProcess) {
+    const article = currentDb.articles.find((a: any) => a.id === item.articleId);
+    if (!article) {
+      processedLignes.push(item);
+      continue;
+    }
+
+    const isCounted = item.stockReel !== null && item.stockReel !== undefined && item.stockReel !== '';
+    if (!isCounted) {
+      processedLignes.push({
+        ...item,
+        stockVirtuel: article.stockActuel,
+        stockReel: null,
+        ecart: null,
+        statut: 'NON_COMPTE',
+        valeurEcart: 0,
+      });
+      continue;
+    }
+
+    const realStock = Number(item.stockReel);
+    if (isNaN(realStock) || realStock < 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Quantité réelle invalide (${item.stockReel}) pour l’article ${article.reference}.`,
+      });
+    }
+
+    nbArticlesComptes++;
+    const virtualStock = article.stockActuel; // current real-time stock
+    const ecart = realStock - virtualStock;
+    const unitPrice = item.prixVente || article.prixVente || 0;
+    const valeurEcart = ecart * unitPrice;
+
+    let statut = 'CONFORME';
+    if (ecart > 0) {
+      statut = 'SURPLUS';
+      nbArticlesAvecEcart++;
+      totalQuantiteSurplus += ecart;
+      valeurSurplus += Math.abs(valeurEcart);
+    } else if (ecart < 0) {
+      statut = 'MANQUANT';
+      nbArticlesAvecEcart++;
+      totalQuantiteManquante += ecart;
+      valeurManquants += Math.abs(valeurEcart);
+    } else {
+      statut = 'CONFORME';
+      nbArticlesConformes++;
+    }
+
+    processedLignes.push({
+      ...item,
+      stockVirtuel: virtualStock,
+      stockReel: realStock,
+      ecart,
+      statut,
+      valeurEcart,
+    });
+
+    // If there is an écart, adjust the article stock and generate an AJUSTEMENT_INVENTAIRE movement
+    if (ecart !== 0) {
+      const stockAvant = article.stockActuel;
+      article.stockActuel = realStock;
+      article.updatedAt = now;
+
+      const mvt = {
+        id: `mvt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+        articleId: article.id,
+        articleReference: article.reference,
+        articleDesignation: article.designation,
+        type: 'AJUSTEMENT_INVENTAIRE',
+        quantite: ecart,
+        stockAvant,
+        stockApres: realStock,
+        date: now,
+        motif: `Ajustement ${targetInventaire.numeroInventaire} (${ecart > 0 ? '+' : ''}${ecart}) par ${caller.username}`,
+        referenceDoc: targetInventaire.numeroInventaire,
+      };
+      currentDb.mouvements.unshift(mvt);
+    }
+  }
+
+  // Update Inventory Record
+  targetInventaire.status = 'VALIDE';
+  targetInventaire.valideAt = now;
+  targetInventaire.validePar = caller.username;
+  targetInventaire.lignes = processedLignes;
+  targetInventaire.nbArticlesTotal = processedLignes.length;
+  targetInventaire.nbArticlesComptes = nbArticlesComptes;
+  targetInventaire.nbArticlesNonComptes = processedLignes.length - nbArticlesComptes;
+  targetInventaire.nbArticlesConformes = nbArticlesConformes;
+  targetInventaire.nbArticlesAvecEcart = nbArticlesAvecEcart;
+  targetInventaire.totalQuantiteManquante = totalQuantiteManquante;
+  targetInventaire.totalQuantiteSurplus = totalQuantiteSurplus;
+  targetInventaire.valeurManquants = valeurManquants;
+  targetInventaire.valeurSurplus = valeurSurplus;
+  targetInventaire.valeurEcartNet = valeurSurplus - valeurManquants;
+  if (notes) targetInventaire.notes = notes;
+
+  // Add to History
+  currentDb.historique.unshift({
+    id: `his_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    date: now,
+    typeAction: 'MODIFICATION',
+    description: `Inventaire ${targetInventaire.numeroInventaire} validé par ${caller.username} (${nbArticlesComptes} comptés, ${nbArticlesAvecEcart} ajustés, net: ${valeurSurplus - valeurManquants} ${currentDb.parametres.devise})`,
+  });
+
+  dbVersion += 1;
+  lastUpdatedAt = now;
+  persistServerDb();
+
+  // Instant broadcast to all connected devices
+  broadcastDatabaseUpdate(clientId, 'INVENTORY_VALIDATED', { inventaire: targetInventaire });
+
+  res.json({
+    success: true,
+    inventaire: targetInventaire,
     db: currentDb,
     version: dbVersion,
     lastUpdatedAt,

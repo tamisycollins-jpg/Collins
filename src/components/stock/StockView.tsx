@@ -12,6 +12,7 @@ import {
   X,
   FileText,
   Barcode,
+  ClipboardCheck,
 } from 'lucide-react';
 import { Article, MouvementStock, Parametres } from '../../types';
 import { formatMontant, formatDateTime, normalizeSearch } from '../../utils/formatters';
@@ -23,6 +24,7 @@ interface StockViewProps {
   parametres: Parametres;
   onOpenNewArrivalForArticle?: (article: Article) => void;
   onOpenNewSaleForArticle?: (article: Article) => void;
+  onOpenInventaire?: () => void;
 }
 
 export function StockView({
@@ -31,6 +33,7 @@ export function StockView({
   parametres,
   onOpenNewArrivalForArticle,
   onOpenNewSaleForArticle,
+  onOpenInventaire,
 }: StockViewProps) {
   const [activeTab, setActiveTab] = useState<'ETAT' | 'MOUVEMENTS'>('ETAT');
   const [searchTerm, setSearchTerm] = useState('');
@@ -93,6 +96,8 @@ export function StockView({
         return <Badge variant="danger">- Vente</Badge>;
       case 'ANNULATION_VENTE':
         return <Badge variant="warning">+ Annulation Vente</Badge>;
+      case 'AJUSTEMENT_INVENTAIRE':
+        return <Badge variant="purple">📋 Inventaire</Badge>;
       case 'AJUSTEMENT':
         return <Badge variant="info">Ajustement</Badge>;
       default:
@@ -114,32 +119,45 @@ export function StockView({
             </p>
           </div>
 
-          {/* Sub-tabs Toggle */}
-          <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setActiveTab('ETAT')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'ETAT'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              <span>État du Stock</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('MOUVEMENTS')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'MOUVEMENTS'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <History className="w-4 h-4" />
-              <span>Mouvements ({mouvements.length})</span>
-            </button>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {onOpenInventaire && (
+              <button
+                type="button"
+                onClick={onOpenInventaire}
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-blue-200"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                <span>Inventaire Physique</span>
+              </button>
+            )}
+
+            {/* Sub-tabs Toggle */}
+            <div className="flex bg-slate-100 p-1 rounded-xl flex-1 sm:flex-initial">
+              <button
+                type="button"
+                onClick={() => setActiveTab('ETAT')}
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'ETAT'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>État du Stock</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('MOUVEMENTS')}
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'MOUVEMENTS'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <History className="w-4 h-4" />
+                <span>Mouvements ({mouvements.length})</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -279,7 +297,7 @@ export function StockView({
             <span className="text-slate-400 flex items-center gap-1 shrink-0 font-medium">
               <Filter className="w-3.5 h-3.5" /> Type :
             </span>
-            {['TOUS', 'ARRIVAGE', 'VENTE', 'ANNULATION_VENTE', 'INITIAL'].map((t) => (
+            {['TOUS', 'ARRIVAGE', 'VENTE', 'ANNULATION_VENTE', 'AJUSTEMENT_INVENTAIRE', 'INITIAL'].map((t) => (
               <button
                 key={t}
                 type="button"
@@ -290,7 +308,13 @@ export function StockView({
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {t === 'TOUS' ? 'Tous' : t === 'ANNULATION_VENTE' ? 'Annulations' : t}
+                {t === 'TOUS'
+                  ? 'Tous'
+                  : t === 'ANNULATION_VENTE'
+                  ? 'Annulations'
+                  : t === 'AJUSTEMENT_INVENTAIRE'
+                  ? '📋 Inventaires'
+                  : t}
               </button>
             ))}
           </div>

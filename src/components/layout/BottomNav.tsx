@@ -3,6 +3,7 @@ import {
   Home,
   ShoppingCart,
   Package,
+  ClipboardCheck,
   Truck,
   ClipboardList,
   DollarSign,
@@ -14,6 +15,7 @@ export type NavTab =
   | 'accueil'
   | 'ventes'
   | 'stock'
+  | 'inventaire'
   | 'arrivages'
   | 'articles'
   | 'reglements'
@@ -26,6 +28,7 @@ interface BottomNavProps {
   badges?: {
     stockAlerts?: number;
     salesCount?: number;
+    inventaireEnCours?: boolean;
   };
 }
 
@@ -34,6 +37,7 @@ export function BottomNav({ currentTab, onTabChange, badges }: BottomNavProps) {
     { id: 'accueil', label: 'Accueil', icon: Home },
     { id: 'ventes', label: 'Ventes', icon: ShoppingCart },
     { id: 'stock', label: 'Stock', icon: Package },
+    { id: 'inventaire', label: 'Inventaire', icon: ClipboardCheck },
     { id: 'arrivages', label: 'Arrivages', icon: Truck },
     { id: 'articles', label: 'Articles', icon: ClipboardList },
     { id: 'reglements', label: 'Règlements', icon: DollarSign },

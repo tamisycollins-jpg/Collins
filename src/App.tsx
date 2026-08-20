@@ -18,6 +18,7 @@ import { ArticlesView } from './components/articles/ArticlesView';
 import { ReglementsView } from './components/reglements/ReglementsView';
 import { RapportsView } from './components/rapports/RapportsView';
 import { ParametresView } from './components/parametres/ParametresView';
+import { InventaireView } from './components/inventaire/InventaireView';
 import { FactureA6Modal } from './components/factures/FactureA6Modal';
 import { FicheInterneModal } from './components/factures/FicheInterneModal';
 import { GlobalSearchModal } from './components/search/GlobalSearchModal';
@@ -112,6 +113,14 @@ export default function App() {
             articles={db.articles}
             mouvements={db.mouvements}
             parametres={db.parametres}
+            onOpenInventaire={() => setCurrentTab('inventaire')}
+          />
+        )}
+
+        {currentTab === 'inventaire' && (
+          <InventaireView
+            db={db}
+            onRefresh={() => setDb(getDatabase())}
           />
         )}
 
