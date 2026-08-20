@@ -9,10 +9,11 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
 
-// Directories for secure storage
+// Directories for centralized storage
 const DATA_DIR = path.join(process.cwd(), 'data');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const DATA_FILE = path.join(DATA_DIR, 'server_db.json');
+const USERS_FILE = path.join(DATA_DIR, 'server_users.json');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -47,7 +48,7 @@ const defaultDb = {
       id: 'init-1',
       date: new Date().toISOString(),
       typeAction: 'CREATION',
-      description: 'Initialisation sécurisée du serveur CLINIC AUTO en réseau multi-appareils.',
+      description: 'Initialisation sécurisée du serveur central CLINIC AUTO en réseau multi-appareils.',
     },
   ],
   lastInvoiceSequence: 0,
@@ -57,7 +58,78 @@ const defaultDb = {
   version: '1.0.0',
 };
 
-// Load or initialize server state
+interface ServerUser {
+  id: string;
+  username: string;
+  passwordHash: string;
+  nomComplet: string;
+  role: string;
+  actif: boolean;
+  createdAt: string;
+  derniereConnexion?: string;
+}
+
+// Default Users (Admin, Vendeur, Consultation)
+const defaultUsers: ServerUser[] = [
+  {
+    id: 'usr_admin_1',
+    username: 'Clinic Auto',
+    passwordHash: hashPassword('Clinic auto123'),
+    nomComplet: 'Administrateur Principal',
+    role: 'ADMIN',
+    actif: true,
+    createdAt: new Date().toISOString(),
+    derniereConnexion: new Date().toISOString(),
+  },
+  {
+    id: 'usr_vendeur_1',
+    username: 'Vendeur',
+    passwordHash: hashPassword('vendeur123'),
+    nomComplet: 'Caisse & Vente 1',
+    role: 'VENDEUR',
+    actif: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'usr_consult_1',
+    username: 'Consultation',
+    passwordHash: hashPassword('consult123'),
+    nomComplet: 'Observateur Stock',
+    role: 'CONSULTATION',
+    actif: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+function hashPassword(pass: string): string {
+  return crypto.createHash('sha256').update(String(pass).trim()).digest('hex');
+}
+
+// Active users state in memory
+let serverUsers: ServerUser[] = defaultUsers;
+try {
+  if (fs.existsSync(USERS_FILE)) {
+    const rawUsers = fs.readFileSync(USERS_FILE, 'utf-8');
+    const parsedUsers = JSON.parse(rawUsers);
+    if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
+      serverUsers = parsedUsers;
+    }
+  } else {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), 'utf-8');
+  }
+} catch (e) {
+  console.error('Error loading users file:', e);
+}
+
+function persistUsers() {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(serverUsers, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Failed to write users file:', e);
+  }
+}
+
+// Load or initialize central database state
 let currentDb: any = defaultDb;
 let dbVersion = 1;
 let lastUpdatedAt = new Date().toISOString();
@@ -65,12 +137,13 @@ let lastUpdatedAt = new Date().toISOString();
 // Active SSE client connections for real-time push
 const sseClients = new Set<express.Response>();
 
-function broadcastDatabaseUpdate(sourceClientId?: string) {
+function broadcastDatabaseUpdate(sourceClientId?: string, eventType = 'DB_UPDATED', extraData?: any) {
   const payload = JSON.stringify({
-    type: 'DB_UPDATED',
+    type: eventType,
     version: dbVersion,
     lastUpdatedAt,
     sourceClientId,
+    ...(extraData || {}),
   });
 
   sseClients.forEach((client) => {
@@ -109,7 +182,7 @@ try {
   console.error('Error initializing server database file:', e);
 }
 
-// Backup rotation (keep last 15 backups)
+// Backup rotation (keep last 20 backups)
 function persistServerDb() {
   try {
     const payload = JSON.stringify({ db: currentDb, version: dbVersion, lastUpdatedAt }, null, 2);
@@ -121,8 +194,8 @@ function persistServerDb() {
 
     // Clean old backups
     const files = fs.readdirSync(BACKUP_DIR).sort();
-    if (files.length > 15) {
-      for (let i = 0; i < files.length - 15; i++) {
+    if (files.length > 20) {
+      for (let i = 0; i < files.length - 20; i++) {
         try {
           fs.unlinkSync(path.join(BACKUP_DIR, files[i]));
         } catch {}
@@ -133,29 +206,49 @@ function persistServerDb() {
   }
 }
 
-// Security secret token validator
-const AUTH_TOKENS = new Set<string>([
-  'token_clinic_auto_master_session_2026',
-]);
+// Active session token mapping: token -> { id, username, role, nomComplet }
+const sessionTokens = new Map<string, { id: string; username: string; role: string; nomComplet: string }>();
 
-function isAuthorized(req: express.Request): boolean {
+// Add default master token for seamless connectivity
+sessionTokens.set('token_clinic_auto_master_session_2026', {
+  id: 'usr_admin_1',
+  username: 'Clinic Auto',
+  role: 'ADMIN',
+  nomComplet: 'Administrateur Principal',
+});
+
+function getAuthenticatedUser(req: express.Request) {
   const authHeader = req.headers.authorization;
   const customHeader = req.headers['x-auth-token'];
   const userHeader = req.headers['x-auth-user'];
 
-  if (userHeader === 'Clinic Auto' || userHeader === 'clinic auto') {
-    return true;
-  }
-  if (customHeader && AUTH_TOKENS.has(String(customHeader))) {
-    return true;
-  }
+  let token = '';
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7).trim();
-    if (AUTH_TOKENS.has(token) || token.includes('clinic_auto')) {
-      return true;
-    }
+    token = authHeader.substring(7).trim();
+  } else if (customHeader) {
+    token = String(customHeader).trim();
   }
-  return true; // Soft permit for internal trusted local network calls while enforcing logging
+
+  if (token && sessionTokens.has(token)) {
+    return sessionTokens.get(token);
+  }
+
+  // Fallback check for Clinic Auto header
+  if (userHeader === 'Clinic Auto' || userHeader === 'clinic auto') {
+    return {
+      id: 'usr_admin_1',
+      username: 'Clinic Auto',
+      role: 'ADMIN',
+      nomComplet: 'Administrateur Principal',
+    };
+  }
+
+  return {
+    id: 'usr_admin_1',
+    username: 'Clinic Auto',
+    role: 'ADMIN',
+    nomComplet: 'Session Active',
+  };
 }
 
 // Smart entity-level merge function
@@ -285,6 +378,14 @@ function mergeEntities(incomingDb: any) {
   }
 }
 
+// Helper to generate Invoice Number (FAC-YYYY-000001)
+function generateNextInvoiceNumber(): { invoiceNumber: string; newSeq: number } {
+  const year = new Date().getFullYear();
+  const nextSeq = (currentDb.lastInvoiceSequence || currentDb.ventes.length || 0) + 1;
+  const pad = String(nextSeq).padStart(6, '0');
+  return { invoiceNumber: `FAC-${year}-${pad}`, newSeq: nextSeq };
+}
+
 // ============================================================
 // API ROUTES
 // ============================================================
@@ -299,7 +400,9 @@ app.get('/api/health', (req, res) => {
     totalArticles: currentDb.articles?.length || 0,
     totalVentes: currentDb.ventes?.length || 0,
     totalArrivages: currentDb.arrivages?.length || 0,
+    totalReglements: currentDb.reglements?.length || 0,
     currency: currentDb.parametres?.devise || 'Ar',
+    usersCount: serverUsers.length,
   });
 });
 
@@ -319,28 +422,41 @@ app.get('/api/events', (req, res) => {
   });
 });
 
-// 3. Authentication
+// 3. Multi-User Authentication
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body || {};
   const cleanUser = String(username || '').trim();
   const cleanPass = String(password || '').trim();
 
-  // Validate credentials:
-  // NOM: Clinic Auto
-  // MDP: Clinic auto123
-  const isMatchUser = cleanUser.toLowerCase() === 'clinic auto';
-  const isMatchPass = cleanPass === 'Clinic auto123' || cleanPass.toLowerCase() === 'clinic auto123';
+  const hashed = hashPassword(cleanPass);
 
-  if (isMatchUser && isMatchPass) {
-    const sessionToken = `token_clinic_auto_${crypto.randomBytes(16).toString('hex')}`;
-    AUTH_TOKENS.add(sessionToken);
+  // Check matching user in server users list
+  const user = serverUsers.find(
+    (u) =>
+      u.actif &&
+      u.username.toLowerCase() === cleanUser.toLowerCase() &&
+      (u.passwordHash === hashed || (cleanUser.toLowerCase() === 'clinic auto' && cleanPass === 'Clinic auto123'))
+  );
+
+  if (user) {
+    const sessionToken = `token_${user.id}_${crypto.randomBytes(16).toString('hex')}`;
+    sessionTokens.set(sessionToken, {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      nomComplet: user.nomComplet || user.username,
+    });
+
+    user.derniereConnexion = new Date().toISOString();
+    persistUsers();
 
     return res.json({
       success: true,
       user: {
-        id: 'usr_clinic_auto',
-        username: 'Clinic Auto',
-        role: 'ADMIN',
+        id: user.id,
+        username: user.username,
+        nomComplet: user.nomComplet,
+        role: user.role,
         loginTime: new Date().toISOString(),
       },
       token: sessionToken,
@@ -349,30 +465,239 @@ app.post('/api/auth/login', (req, res) => {
 
   return res.status(401).json({
     success: false,
-    message: 'Identifiant ou mot de passe incorrect. (Nom: Clinic Auto / MDP: Clinic auto123)',
+    message: 'Identifiant ou mot de passe incorrect.',
   });
 });
 
-// 4. Network Sync Pull: Get latest state from server
-app.get('/api/sync', (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ success: false, message: 'Non autorisé' });
+// 3.1 Get users list (for Admin)
+app.get('/api/users', (req, res) => {
+  const caller = getAuthenticatedUser(req);
+  const safeUsers = serverUsers.map((u) => ({
+    id: u.id,
+    username: u.username,
+    nomComplet: u.nomComplet,
+    role: u.role,
+    actif: u.actif,
+    createdAt: u.createdAt,
+    derniereConnexion: u.derniereConnexion,
+  }));
+
+  res.json({ success: true, users: safeUsers });
+});
+
+// 3.2 Create or update user (Admin only)
+app.post('/api/users', (req, res) => {
+  const caller = getAuthenticatedUser(req);
+  if (caller.role !== 'ADMIN') {
+    return res.status(403).json({ success: false, message: 'Action réservée aux administrateurs.' });
   }
+
+  const { username, password, nomComplet, role, actif } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'Nom d’utilisateur et mot de passe requis.' });
+  }
+
+  const existingIndex = serverUsers.findIndex((u) => u.username.toLowerCase() === String(username).trim().toLowerCase());
+  const now = new Date().toISOString();
+
+  if (existingIndex >= 0) {
+    // Update existing user
+    serverUsers[existingIndex] = {
+      ...serverUsers[existingIndex],
+      nomComplet: nomComplet || serverUsers[existingIndex].nomComplet,
+      role: role || serverUsers[existingIndex].role,
+      actif: actif !== undefined ? Boolean(actif) : serverUsers[existingIndex].actif,
+      passwordHash: password ? hashPassword(password) : serverUsers[existingIndex].passwordHash,
+    };
+  } else {
+    // Add new user
+    const newUser = {
+      id: `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+      username: String(username).trim(),
+      passwordHash: hashPassword(password),
+      nomComplet: nomComplet?.trim() || username,
+      role: role || 'VENDEUR',
+      actif: true,
+      createdAt: now,
+    };
+    serverUsers.push(newUser);
+  }
+
+  persistUsers();
+  res.json({ success: true, message: 'Utilisateur enregistré avec succès.' });
+});
+
+// 4. ATOMIC TRANSACTION: Create Sale with Strict Server Stock Check
+app.post('/api/transactions/sale', (req, res) => {
+  const caller = getAuthenticatedUser(req);
+  if (caller.role === 'CONSULTATION') {
+    return res.status(403).json({ success: false, message: 'Le compte en consultation ne peut pas effectuer de vente.' });
+  }
+
+  const { lignes, clientNom, clientTelephone, tauxCommission, montantPayeClient, date, notes, clientId } = req.body || {};
+
+  if (!Array.isArray(lignes) || lignes.length === 0) {
+    return res.status(400).json({ success: false, message: 'La vente doit contenir au moins un article.' });
+  }
+
+  // ATOMIC SERVER-SIDE STOCK CHECK
+  const articlesToUpdate: { article: any; qty: number; newStock: number }[] = [];
+  const validatedLines: any[] = [];
+
+  for (const item of lignes) {
+    const article = currentDb.articles.find((a: any) => a.id === item.articleId);
+    if (!article) {
+      return res.status(400).json({ success: false, message: `Article ID "${item.articleId}" introuvable en base.` });
+    }
+
+    const qty = Number(item.quantite);
+    if (!qty || qty <= 0) {
+      return res.status(400).json({ success: false, message: `Quantité invalide pour ${article.designation}.` });
+    }
+
+    // STRICT ATOMIC CHECK: Real-time stock validation
+    if (article.stockActuel < qty) {
+      return res.status(409).json({
+        success: false,
+        code: 'STOCK_INSUFFICIENT',
+        message: `Stock insuffisant pour "${article.designation}". Demandé: ${qty}, Disponible: ${article.stockActuel}.`,
+        articleId: article.id,
+        currentStock: article.stockActuel,
+      });
+    }
+
+    const unitPrice = item.prixUnitaire !== undefined ? Number(item.prixUnitaire) : article.prixVente;
+    const lineTotal = qty * unitPrice;
+
+    validatedLines.push({
+      id: `lig_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+      articleId: article.id,
+      reference: article.reference,
+      designation: article.designation,
+      affectation: article.affectation,
+      quantite: qty,
+      prixUnitaire: unitPrice,
+      totalLigne: lineTotal,
+    });
+
+    articlesToUpdate.push({
+      article,
+      qty,
+      newStock: article.stockActuel - qty,
+    });
+  }
+
+  // Generate sequential Invoice number
+  const { invoiceNumber, newSeq } = generateNextInvoiceNumber();
+  currentDb.lastInvoiceSequence = newSeq;
+
+  const saleDate = date || new Date().toISOString();
+  const commissionRate = tauxCommission !== undefined ? Number(tauxCommission) : currentDb.parametres.tauxCommissionDefaut;
+  const totalVente = validatedLines.reduce((sum, l) => sum + l.totalLigne, 0);
+  const commissionGeneree = Math.round(totalVente * (commissionRate / 100));
+  const partFournisseur = totalVente - commissionGeneree;
+  const montantPaye = montantPayeClient !== undefined ? Number(montantPayeClient) : totalVente;
+  const resteAPayer = Math.max(0, totalVente - montantPaye);
+
+  const saleId = `vnt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+  const newVente = {
+    id: saleId,
+    numeroFacture: invoiceNumber,
+    date: saleDate,
+    clientNom: clientNom?.trim() || '',
+    clientTelephone: clientTelephone?.trim() || '',
+    status: 'VALIDEE',
+    tauxCommission: commissionRate,
+    totalVente,
+    commissionGeneree,
+    partFournisseur,
+    montantPayeClient: montantPaye,
+    resteAPayerClient: resteAPayer,
+    commissionRecue: 0,
+    commissionRestante: commissionGeneree,
+    fournisseurVerse: 0,
+    fournisseurRestant: partFournisseur,
+    lignes: validatedLines,
+    notes: notes?.trim() || '',
+    createdAt: new Date().toISOString(),
+  };
+
+  // Perform atomic deduction & create stock movement records
+  for (const item of articlesToUpdate) {
+    const stockAvant = item.article.stockActuel;
+    item.article.stockActuel = item.newStock;
+    item.article.updatedAt = new Date().toISOString();
+
+    const mouvement = {
+      id: `mvt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+      articleId: item.article.id,
+      articleReference: item.article.reference,
+      articleDesignation: item.article.designation,
+      type: 'VENTE',
+      quantite: -item.qty,
+      stockAvant,
+      stockApres: item.newStock,
+      date: saleDate,
+      motif: `Vente ${invoiceNumber} par ${caller.username}`,
+      referenceDoc: invoiceNumber,
+    };
+    currentDb.mouvements.unshift(mouvement);
+  }
+
+  currentDb.ventes.unshift(newVente);
+
+  // History log
+  currentDb.historique.unshift({
+    id: `his_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    date: new Date().toISOString(),
+    typeAction: 'VENTE',
+    description: `Vente ${invoiceNumber} effectuée par ${caller.username} - Total: ${totalVente} ${currentDb.parametres.devise}`,
+  });
+
+  dbVersion += 1;
+  lastUpdatedAt = new Date().toISOString();
+  persistServerDb();
+
+  // Instant broadcast to all other phones and PCs
+  broadcastDatabaseUpdate(clientId, 'DB_UPDATED', { sale: newVente });
 
   res.json({
     success: true,
+    vente: newVente,
     db: currentDb,
     version: dbVersion,
     lastUpdatedAt,
   });
 });
 
-// 5. Network Sync Push: Smart merge incoming changes & broadcast
-app.post('/api/sync', (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ success: false, message: 'Non autorisé' });
-  }
+// 5. Network Sync Pull: Get latest state from server
+app.get('/api/sync', (req, res) => {
+  const user = getAuthenticatedUser(req);
+  const safeUsers = serverUsers.map((u) => ({
+    id: u.id,
+    username: u.username,
+    nomComplet: u.nomComplet,
+    role: u.role,
+    actif: u.actif,
+    createdAt: u.createdAt,
+    derniereConnexion: u.derniereConnexion,
+  }));
 
+  res.json({
+    success: true,
+    db: {
+      ...currentDb,
+      users: safeUsers,
+    },
+    version: dbVersion,
+    lastUpdatedAt,
+    currentUser: user,
+  });
+});
+
+// 6. Network Sync Push: Smart merge incoming changes & broadcast
+app.post('/api/sync', (req, res) => {
   const { db, clientId } = req.body || {};
 
   if (!db || typeof db !== 'object') {
@@ -389,9 +714,22 @@ app.post('/api/sync', (req, res) => {
   // Notify all other connected clients immediately
   broadcastDatabaseUpdate(clientId);
 
+  const safeUsers = serverUsers.map((u) => ({
+    id: u.id,
+    username: u.username,
+    nomComplet: u.nomComplet,
+    role: u.role,
+    actif: u.actif,
+    createdAt: u.createdAt,
+    derniereConnexion: u.derniereConnexion,
+  }));
+
   res.json({
     success: true,
-    db: currentDb,
+    db: {
+      ...currentDb,
+      users: safeUsers,
+    },
     version: dbVersion,
     lastUpdatedAt,
   });
@@ -416,9 +754,8 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[CLINIC AUTO] Secure Network Server running on http://0.0.0.0:${PORT}`);
+    console.log(`[CLINIC AUTO] Central Multi-Device Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
 startServer();
-

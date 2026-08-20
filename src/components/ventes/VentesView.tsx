@@ -18,7 +18,7 @@ import {
   Percent,
 } from 'lucide-react';
 import { Vente, Article, Parametres, LigneVenteInput } from '../../types';
-import { createVente, annulerVente } from '../../services/storage';
+import { createVenteOnlineAtomic, annulerVente } from '../../services/storage';
 import { formatMontant, formatDateTime, formatDate, normalizeSearch } from '../../utils/formatters';
 import { Badge } from '../common/Badge';
 import { Modal } from '../common/Modal';
@@ -217,7 +217,7 @@ export function VentesView({
   };
 
   // Submit Sale
-  const handleValidateSale = (e: React.FormEvent) => {
+  const handleValidateSale = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaleError(null);
 
@@ -233,7 +233,7 @@ export function VentesView({
         prixUnitaire: item.prixUnitaire,
       }));
 
-      const created = createVente({
+      const created = await createVenteOnlineAtomic({
         lignes: linesInput,
         clientNom,
         clientTelephone,

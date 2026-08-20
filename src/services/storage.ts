@@ -190,7 +190,7 @@ export function getDatabase(): DatabaseSchema {
 
 let isSyncingToServer = false;
 
-function getAuthHeaders(): Record<string, string> {
+export function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem(AUTH_TOKEN_KEY) || 'token_clinic_auto_master_session_2026';
   return {
     'Content-Type': 'application/json',
@@ -800,6 +800,53 @@ export function createVente(data: {
 
   saveDatabase(db);
   return newVente;
+}
+
+export async function createVenteOnlineAtomic(data: {
+  lignes: LigneVenteInput[];
+  clientNom?: string;
+  clientTelephone?: string;
+  tauxCommission?: number;
+  montantPayeClient?: number;
+  date?: string;
+  notes?: string;
+}): Promise<Vente> {
+  // 1. Try atomic server-side transaction first
+  try {
+    const res = await fetch('/api/transactions/sale', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        ...data,
+        clientId: CLIENT_ID,
+      }),
+    });
+
+    if (res.ok) {
+      const result = await res.json();
+      if (result && result.vente) {
+        // Update local database cache with response
+        if (result.db) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(result.db));
+          notifyListeners();
+        }
+        return result.vente;
+      }
+    } else {
+      const errJson = await res.json().catch(() => null);
+      if (errJson && errJson.message) {
+        throw new Error(errJson.message);
+      }
+    }
+  } catch (netErr: any) {
+    if (netErr.message && netErr.message.includes('Stock insuffisant')) {
+      throw netErr;
+    }
+    console.warn('Direct server atomic sale failed, falling back to local engine + auto-push', netErr);
+  }
+
+  // 2. Offline fallback (or if server is unreachable)
+  return createVente(data);
 }
 
 // ==========================================

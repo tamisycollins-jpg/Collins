@@ -31,6 +31,7 @@ import {
 } from '../../services/storage';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { NetworkSyncModal } from '../common/NetworkSyncModal';
+import { UserManagementSection } from './UserManagementSection';
 
 interface ParametresViewProps {
   parametres: Parametres;
@@ -242,6 +243,9 @@ export function ParametresView({ parametres, onOpenInstallAndroid }: ParametresV
           </button>
         </div>
       </div>
+
+      {/* 0.2 GESTION MULTI-UTILISATEURS */}
+      <UserManagementSection />
 
       {/* 1. SAUVEGARDE & RESTAURATION BOX */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">

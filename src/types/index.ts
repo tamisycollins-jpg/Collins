@@ -130,11 +130,24 @@ export interface HistoriqueAction {
   details?: Record<string, any>;
 }
 
+export type UserRole = 'ADMIN' | 'VENDEUR' | 'CONSULTATION';
+
+export interface AppUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  nomComplet?: string;
+  actif: boolean;
+  createdAt: string;
+  derniereConnexion?: string;
+}
+
 export interface AuthUser {
   id: string;
   username: string;
-  role: 'ADMIN' | 'GESTIONNAIRE' | 'CAISSE';
+  role: UserRole;
   loginTime: string;
+  nomComplet?: string;
 }
 
 export type NetworkSyncStatus = 'CONNECTE' | 'SYNCHRONISATION' | 'HORS_LIGNE' | 'ERREUR';
@@ -147,8 +160,10 @@ export interface DatabaseSchema {
   reglements: Reglement[];
   parametres: Parametres;
   historique: HistoriqueAction[];
+  users?: AppUser[];
   lastInvoiceSequence: number;
   lastArrivalSequence: number;
   lastPaymentSequence: number;
+  deletedArticleIds?: string[];
   version: string;
 }
