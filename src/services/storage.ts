@@ -1,0 +1,668 @@
+import {
+  Article,
+  MouvementStock,
+  Arrivage,
+  Vente,
+  LigneVente,
+  Reglement,
+  Parametres,
+  HistoriqueAction,
+  DatabaseSchema,
+} from '../types';
+
+const STORAGE_KEY = 'kospam_gestion_db_v1';
+
+export const DEFAULT_PARAMETRES: Parametres = {
+  nomEntreprise: 'KOSPAM GESTION',
+  slogan: 'Dépôt & Distribution de Pièces Détachées',
+  logoUrl: '',
+  adresse: 'Madagascar',
+  telephone: '+261 34 00 000 00',
+  email: 'contact@kospam.mg',
+  nifStat: '',
+  devise: 'Ar',
+  tauxCommissionDefaut: 10,
+  seuilStockDefaut: 2,
+  texteFacture: 'Merci pour votre confiance !',
+  conditionsVente: 'Les marchandises vendues ne sont ni reprises ni échangées après 48h.',
+};
+
+const INITIAL_EMPTY_DB: DatabaseSchema = {
+  articles: [],
+  mouvements: [],
+  arrivages: [],
+  ventes: [],
+  reglements: [],
+  parametres: DEFAULT_PARAMETRES,
+  historique: [],
+  lastInvoiceSequence: 0,
+  lastArrivalSequence: 0,
+  lastPaymentSequence: 0,
+  version: '1.0.0',
+};
+
+// Event listener mechanism for reactivity
+type Listener = (db: DatabaseSchema) => void;
+const listeners: Set<Listener> = new Set();
+
+export function subscribeToDatabase(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifyListeners() {
+  const currentDb = getDatabase();
+  listeners.forEach((listener) => {
+    try {
+      listener(currentDb);
+    } catch (err) {
+      console.error('Error notifying database listener:', err);
+    }
+  });
+}
+
+// Low-level read/write
+export function getDatabase(): DatabaseSchema {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      // First boot: initialize empty DB
+      saveDatabase(INITIAL_EMPTY_DB);
+      return INITIAL_EMPTY_DB;
+    }
+    const parsed = JSON.parse(raw) as DatabaseSchema;
+    // Ensure all arrays exist
+    return {
+      articles: parsed.articles || [],
+      mouvements: parsed.mouvements || [],
+      arrivages: parsed.arrivages || [],
+      ventes: parsed.ventes || [],
+      reglements: parsed.reglements || [],
+      parametres: { ...DEFAULT_PARAMETRES, ...(parsed.parametres || {}) },
+      historique: parsed.historique || [],
+      lastInvoiceSequence: parsed.lastInvoiceSequence || 0,
+      lastArrivalSequence: parsed.lastArrivalSequence || 0,
+      lastPaymentSequence: parsed.lastPaymentSequence || 0,
+      version: parsed.version || '1.0.0',
+    };
+  } catch (err) {
+    console.error('Error loading database, returning empty DB:', err);
+    return INITIAL_EMPTY_DB;
+  }
+}
+
+export function saveDatabase(db: DatabaseSchema): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    notifyListeners();
+  } catch (err) {
+    console.error('Error saving database to localStorage:', err);
+    throw new Error('Erreur lors de la sauvegarde locale.');
+  }
+}
+
+// Generate unique sequential IDs
+function getNextInvoiceNumber(db: DatabaseSchema): { invoiceNumber: string; newSeq: number } {
+  const currentYear = new Date().getFullYear();
+  const nextSeq = (db.lastInvoiceSequence || 0) + 1;
+  const seqStr = String(nextSeq).padStart(6, '0');
+  const invoiceNumber = `FAC-${currentYear}-${seqStr}`;
+  return { invoiceNumber, newSeq: nextSeq };
+}
+
+function getNextArrivalNumber(db: DatabaseSchema): { arrivalNumber: string; newSeq: number } {
+  const currentYear = new Date().getFullYear();
+  const nextSeq = (db.lastArrivalSequence || 0) + 1;
+  const seqStr = String(nextSeq).padStart(4, '0');
+  const arrivalNumber = `ARR-${currentYear}-${seqStr}`;
+  return { arrivalNumber, newSeq: nextSeq };
+}
+
+function getNextPaymentNumber(db: DatabaseSchema): { paymentNumber: string; newSeq: number } {
+  const currentYear = new Date().getFullYear();
+  const nextSeq = (db.lastPaymentSequence || 0) + 1;
+  const seqStr = String(nextSeq).padStart(6, '0');
+  const paymentNumber = `REG-${currentYear}-${seqStr}`;
+  return { paymentNumber, newSeq: nextSeq };
+}
+
+function generateUUID(): string {
+  return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
+}
+
+// ==========================================
+// ARTICLES MANAGEMENT
+// ==========================================
+
+export function addArticle(data: {
+  reference: string;
+  designation: string;
+  affectation: string;
+  prixVente: number;
+  stockInitial: number;
+  seuilMin?: number;
+}): Article {
+  const db = getDatabase();
+  const cleanRef = data.reference.trim().toUpperCase();
+
+  // Check unique reference (case insensitive)
+  const existing = db.articles.find(
+    (a) => a.reference.trim().toUpperCase() === cleanRef
+  );
+  if (existing) {
+    throw new Error('Cette référence existe déjà.');
+  }
+
+  if (!cleanRef) throw new Error('La référence est obligatoire.');
+  if (!data.designation.trim()) throw new Error('La désignation est obligatoire.');
+  if (data.prixVente < 0) throw new Error('Le prix de vente doit être positif.');
+  const initialQty = Math.max(0, Number(data.stockInitial) || 0);
+  const minThreshold = data.seuilMin !== undefined ? Number(data.seuilMin) : db.parametres.seuilStockDefaut;
+
+  const now = new Date().toISOString();
+  const newArticle: Article = {
+    id: generateUUID(),
+    reference: cleanRef,
+    designation: data.designation.trim(),
+    affectation: data.affectation.trim(),
+    prixVente: Number(data.prixVente) || 0,
+    stockActuel: initialQty,
+    seuilMin: Math.max(0, minThreshold),
+    status: 'ACTIF',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.articles.push(newArticle);
+
+  // If initial stock > 0, record initial stock movement
+  if (initialQty > 0) {
+    const mouvement: MouvementStock = {
+      id: generateUUID(),
+      articleId: newArticle.id,
+      articleReference: newArticle.reference,
+      articleDesignation: newArticle.designation,
+      type: 'INITIAL',
+      quantite: initialQty,
+      stockAvant: 0,
+      stockApres: initialQty,
+      date: now,
+      motif: 'Stock initial à la création',
+    };
+    db.mouvements.push(mouvement);
+  }
+
+  // History log
+  db.historique.push({
+    id: generateUUID(),
+    date: now,
+    typeAction: 'CREATION',
+    description: `Création article ${newArticle.reference} - ${newArticle.designation} (Stock initial: ${initialQty})`,
+  });
+
+  saveDatabase(db);
+  return newArticle;
+}
+
+export function updateArticle(
+  id: string,
+  data: {
+    designation?: string;
+    affectation?: string;
+    prixVente?: number;
+    seuilMin?: number;
+    status?: 'ACTIF' | 'INACTIF';
+  }
+): Article {
+  const db = getDatabase();
+  const articleIndex = db.articles.findIndex((a) => a.id === id);
+  if (articleIndex === -1) throw new Error('Article non trouvé.');
+
+  const existing = db.articles[articleIndex];
+  const now = new Date().toISOString();
+
+  const updated: Article = {
+    ...existing,
+    designation: data.designation !== undefined ? data.designation.trim() : existing.designation,
+    affectation: data.affectation !== undefined ? data.affectation.trim() : existing.affectation,
+    prixVente: data.prixVente !== undefined ? Number(data.prixVente) : existing.prixVente,
+    seuilMin: data.seuilMin !== undefined ? Number(data.seuilMin) : existing.seuilMin,
+    status: data.status !== undefined ? data.status : existing.status,
+    updatedAt: now,
+  };
+
+  db.articles[articleIndex] = updated;
+
+  db.historique.push({
+    id: generateUUID(),
+    date: now,
+    typeAction: 'MODIFICATION',
+    description: `Modification article ${updated.reference} (${updated.designation})`,
+  });
+
+  saveDatabase(db);
+  return updated;
+}
+
+export function deleteArticle(id: string): { success: boolean; reference: string; designation: string } {
+  const db = getDatabase();
+  const articleIndex = db.articles.findIndex((a) => a.id === id);
+  if (articleIndex === -1) throw new Error('Article non trouvé.');
+
+  const article = db.articles[articleIndex];
+  const now = new Date().toISOString();
+
+  // Remove article permanently from db.articles
+  db.articles.splice(articleIndex, 1);
+
+  // Add deletion log to history
+  db.historique.push({
+    id: generateUUID(),
+    date: now,
+    typeAction: 'SUPPRESSION',
+    description: `Suppression définitive de l'article ${article.reference} (${article.designation})`,
+  });
+
+  saveDatabase(db);
+  return { success: true, reference: article.reference, designation: article.designation };
+}
+
+// ==========================================
+// ARRIVAGES MANAGEMENT
+// ==========================================
+
+export function addArrivage(data: {
+  articleId: string;
+  quantite: number;
+  date?: string;
+  remarque?: string;
+}): Arrivage {
+  const db = getDatabase();
+  const article = db.articles.find((a) => a.id === data.articleId);
+  if (!article) throw new Error('Article sélectionné introuvable.');
+
+  const qty = Number(data.quantite);
+  if (!qty || qty <= 0) {
+    throw new Error('La quantité reçue doit être strictement supérieure à 0.');
+  }
+
+  const { arrivalNumber, newSeq } = getNextArrivalNumber(db);
+  db.lastArrivalSequence = newSeq;
+
+  const now = data.date || new Date().toISOString();
+  const stockAvant = article.stockActuel;
+  const stockApres = stockAvant + qty;
+
+  const arrivage: Arrivage = {
+    id: generateUUID(),
+    numeroArrivage: arrivalNumber,
+    articleId: article.id,
+    articleReference: article.reference,
+    articleDesignation: article.designation,
+    quantite: qty,
+    date: now,
+    remarque: data.remarque?.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  // Update article stock
+  article.stockActuel = stockApres;
+  article.updatedAt = new Date().toISOString();
+
+  // Create movement record
+  const mouvement: MouvementStock = {
+    id: generateUUID(),
+    articleId: article.id,
+    articleReference: article.reference,
+    articleDesignation: article.designation,
+    type: 'ARRIVAGE',
+    quantite: qty,
+    stockAvant,
+    stockApres,
+    date: now,
+    motif: data.remarque ? `Arrivage ${arrivalNumber}: ${data.remarque}` : `Arrivage ${arrivalNumber}`,
+    referenceDoc: arrivalNumber,
+  };
+
+  db.arrivages.unshift(arrivage);
+  db.mouvements.unshift(mouvement);
+
+  db.historique.push({
+    id: generateUUID(),
+    date: new Date().toISOString(),
+    typeAction: 'ARRIVAGE',
+    description: `Arrivage de ${qty}x ${article.reference} (${arrivalNumber}) - Nouveau stock: ${stockApres}`,
+  });
+
+  saveDatabase(db);
+  return arrivage;
+}
+
+// ==========================================
+// VENTES MANAGEMENT
+// ==========================================
+
+export interface LigneVenteInput {
+  articleId: string;
+  quantite: number;
+  prixUnitaire?: number; // fallback to article current price
+}
+
+export function createVente(data: {
+  lignes: LigneVenteInput[];
+  clientNom?: string;
+  clientTelephone?: string;
+  tauxCommission?: number;
+  montantPayeClient?: number;
+  date?: string;
+  notes?: string;
+}): Vente {
+  const db = getDatabase();
+
+  if (!data.lignes || data.lignes.length === 0) {
+    throw new Error('La vente doit contenir au moins un article.');
+  }
+
+  // 1. Validate each line and check stock
+  const validatedLines: LigneVente[] = [];
+  const articlesToUpdate: { article: Article; newStock: number; qty: number }[] = [];
+
+  for (const item of data.lignes) {
+    const article = db.articles.find((a) => a.id === item.articleId);
+    if (!article) {
+      throw new Error(`Article introuvable pour la ligne.`);
+    }
+
+    const qty = Number(item.quantite);
+    if (!qty || qty <= 0) {
+      throw new Error(`Quantité invalide pour l'article ${article.reference}.`);
+    }
+
+    // STRICT STOCK CHECK
+    if (article.stockActuel < qty) {
+      throw new Error(
+        `Stock insuffisant pour ${article.designation} (${article.reference}). Stock disponible : ${article.stockActuel}.`
+      );
+    }
+
+    const unitPrice = item.prixUnitaire !== undefined ? Number(item.prixUnitaire) : article.prixVente;
+    const lineTotal = qty * unitPrice;
+
+    validatedLines.push({
+      id: generateUUID(),
+      articleId: article.id,
+      reference: article.reference,
+      designation: article.designation,
+      affectation: article.affectation,
+      quantite: qty,
+      prixUnitaire: unitPrice,
+      totalLigne: lineTotal,
+    });
+
+    articlesToUpdate.push({
+      article,
+      qty,
+      newStock: article.stockActuel - qty,
+    });
+  }
+
+  // 2. Generate Invoice Number (FAC-YYYY-000001)
+  const { invoiceNumber, newSeq } = getNextInvoiceNumber(db);
+  db.lastInvoiceSequence = newSeq;
+
+  const saleDate = data.date || new Date().toISOString();
+  const commissionRate = data.tauxCommission !== undefined ? Number(data.tauxCommission) : db.parametres.tauxCommissionDefaut;
+
+  const totalVente = validatedLines.reduce((sum, l) => sum + l.totalLigne, 0);
+  const commissionGeneree = Math.round(totalVente * (commissionRate / 100));
+  const partFournisseur = totalVente - commissionGeneree; // Exact remaining (usually 90%)
+
+  const montantPaye = data.montantPayeClient !== undefined ? Number(data.montantPayeClient) : totalVente;
+  const resteAPayer = Math.max(0, totalVente - montantPaye);
+
+  const newVente: Vente = {
+    id: generateUUID(),
+    numeroFacture: invoiceNumber,
+    date: saleDate,
+    clientNom: data.clientNom?.trim(),
+    clientTelephone: data.clientTelephone?.trim(),
+    status: 'VALIDEE',
+    tauxCommission: commissionRate,
+    totalVente,
+    commissionGeneree,
+    partFournisseur,
+    montantPayeClient: montantPaye,
+    resteAPayerClient: resteAPayer,
+    commissionRecue: 0,
+    commissionRestante: commissionGeneree,
+    fournisseurVerse: 0,
+    fournisseurRestant: partFournisseur,
+    lignes: validatedLines,
+    notes: data.notes?.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  // 3. Atomically update articles stock and create movement logs
+  for (const item of articlesToUpdate) {
+    const stockAvant = item.article.stockActuel;
+    item.article.stockActuel = item.newStock;
+    item.article.updatedAt = new Date().toISOString();
+
+    const mouvement: MouvementStock = {
+      id: generateUUID(),
+      articleId: item.article.id,
+      articleReference: item.article.reference,
+      articleDesignation: item.article.designation,
+      type: 'VENTE',
+      quantite: -item.qty,
+      stockAvant,
+      stockApres: item.newStock,
+      date: saleDate,
+      motif: `Vente ${invoiceNumber}`,
+      referenceDoc: invoiceNumber,
+    };
+    db.mouvements.unshift(mouvement);
+  }
+
+  // 4. Save sale
+  db.ventes.unshift(newVente);
+
+  db.historique.push({
+    id: generateUUID(),
+    date: new Date().toISOString(),
+    typeAction: 'VENTE',
+    description: `Nouvelle vente ${invoiceNumber} - Total: ${totalVente} ${db.parametres.devise}`,
+  });
+
+  saveDatabase(db);
+  return newVente;
+}
+
+// ==========================================
+// ANNULATION DE VENTE
+// ==========================================
+
+export function annulerVente(venteId: string, motif?: string): Vente {
+  const db = getDatabase();
+  const vente = db.ventes.find((v) => v.id === venteId);
+  if (!vente) throw new Error('Vente introuvable.');
+
+  if (vente.status === 'ANNULEE') {
+    throw new Error('Cette vente est déjà annulée.');
+  }
+
+  const now = new Date().toISOString();
+  vente.status = 'ANNULEE';
+  vente.annuleeAt = now;
+  vente.annuleeMotif = motif?.trim() || 'Annulation manuelle par l’utilisateur';
+
+  // Replenish stock for all items
+  for (const ligne of vente.lignes) {
+    const article = db.articles.find((a) => a.id === ligne.articleId);
+    if (article) {
+      const stockAvant = article.stockActuel;
+      const stockApres = stockAvant + ligne.quantite;
+      article.stockActuel = stockApres;
+      article.updatedAt = now;
+
+      const mouvement: MouvementStock = {
+        id: generateUUID(),
+        articleId: article.id,
+        articleReference: article.reference,
+        articleDesignation: article.designation,
+        type: 'ANNULATION_VENTE',
+        quantite: ligne.quantite,
+        stockAvant,
+        stockApres,
+        date: now,
+        motif: `Annulation vente ${vente.numeroFacture}${motif ? ` (${motif})` : ''}`,
+        referenceDoc: vente.numeroFacture,
+      };
+      db.mouvements.unshift(mouvement);
+    }
+  }
+
+  db.historique.push({
+    id: generateUUID(),
+    date: now,
+    typeAction: 'ANNULATION',
+    description: `Annulation de la vente ${vente.numeroFacture} - Remise en stock effectuée.`,
+  });
+
+  saveDatabase(db);
+  return vente;
+}
+
+// ==========================================
+// REGLEMENTS MANAGEMENT
+// ==========================================
+
+export function addReglement(data: {
+  typePartie: 'COMMISSION' | 'FOURNISSEUR' | 'CLIENT';
+  modePaiement: 'ESPECES' | 'MVOLA' | 'ORANGE_MONEY' | 'AIRTEL_MONEY' | 'VIREMENT' | 'CHEQUE';
+  montant: number;
+  remarque?: string;
+  venteId?: string;
+  ventesIds?: string[];
+  pieceJustificative?: string;
+  date?: string;
+}): Reglement {
+  const db = getDatabase();
+  const montant = Number(data.montant);
+  if (!montant || montant <= 0) {
+    throw new Error('Le montant du règlement doit être strictement positif.');
+  }
+
+  const { paymentNumber, newSeq } = getNextPaymentNumber(db);
+  db.lastPaymentSequence = newSeq;
+
+  const now = data.date || new Date().toISOString();
+
+  const reglement: Reglement = {
+    id: generateUUID(),
+    numeroReglement: paymentNumber,
+    date: now,
+    typePartie: data.typePartie,
+    modePaiement: data.modePaiement,
+    montant,
+    remarque: data.remarque?.trim(),
+    venteId: data.venteId,
+    ventesIds: data.ventesIds,
+    pieceJustificative: data.pieceJustificative?.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  // If linked to a single sale, update the sale specific balances
+  if (data.venteId) {
+    const sale = db.ventes.find((v) => v.id === data.venteId);
+    if (sale && sale.status !== 'ANNULEE') {
+      if (data.typePartie === 'CLIENT') {
+        sale.montantPayeClient = (sale.montantPayeClient || 0) + montant;
+        sale.resteAPayerClient = Math.max(0, sale.totalVente - sale.montantPayeClient);
+      } else if (data.typePartie === 'COMMISSION') {
+        sale.commissionRecue = (sale.commissionRecue || 0) + montant;
+        sale.commissionRestante = Math.max(0, sale.commissionGeneree - sale.commissionRecue);
+      } else if (data.typePartie === 'FOURNISSEUR') {
+        sale.fournisseurVerse = (sale.fournisseurVerse || 0) + montant;
+        sale.fournisseurRestant = Math.max(0, sale.partFournisseur - sale.fournisseurVerse);
+      }
+    }
+  }
+
+  db.reglements.unshift(reglement);
+
+  db.historique.push({
+    id: generateUUID(),
+    date: new Date().toISOString(),
+    typeAction: 'REGLEMENT',
+    description: `Règlement ${paymentNumber} (${data.typePartie}) de ${montant} ${db.parametres.devise}`,
+  });
+
+  saveDatabase(db);
+  return reglement;
+}
+
+// ==========================================
+// PARAMETRES & BACKUP
+// ==========================================
+
+export function updateParametres(data: Partial<Parametres>): Parametres {
+  const db = getDatabase();
+  db.parametres = {
+    ...db.parametres,
+    ...data,
+  };
+  saveDatabase(db);
+  return db.parametres;
+}
+
+export function exportBackupJSON(): string {
+  const db = getDatabase();
+  return JSON.stringify(db, null, 2);
+}
+
+export function importBackupJSON(jsonString: string): { success: boolean; message: string; countArticles: number } {
+  try {
+    const parsed = JSON.parse(jsonString) as DatabaseSchema;
+    if (!parsed || !Array.isArray(parsed.articles)) {
+      throw new Error('Format de fichier de sauvegarde invalide.');
+    }
+
+    const validatedDb: DatabaseSchema = {
+      articles: parsed.articles || [],
+      mouvements: parsed.mouvements || [],
+      arrivages: parsed.arrivages || [],
+      ventes: parsed.ventes || [],
+      reglements: parsed.reglements || [],
+      parametres: { ...DEFAULT_PARAMETRES, ...(parsed.parametres || {}) },
+      historique: parsed.historique || [],
+      lastInvoiceSequence: parsed.lastInvoiceSequence || parsed.ventes?.length || 0,
+      lastArrivalSequence: parsed.lastArrivalSequence || parsed.arrivages?.length || 0,
+      lastPaymentSequence: parsed.lastPaymentSequence || parsed.reglements?.length || 0,
+      version: parsed.version || '1.0.0',
+    };
+
+    validatedDb.historique.push({
+      id: generateUUID(),
+      date: new Date().toISOString(),
+      typeAction: 'RESTAURATION',
+      description: `Restauration complète de la base de données (${validatedDb.articles.length} articles).`,
+    });
+
+    saveDatabase(validatedDb);
+    return {
+      success: true,
+      message: 'Restauration réussie.',
+      countArticles: validatedDb.articles.length,
+    };
+  } catch (err: any) {
+    console.error('Import error:', err);
+    throw new Error(err.message || 'Impossible de lire le fichier de sauvegarde.');
+  }
+}
+
+export function resetDatabase(): void {
+  saveDatabase(INITIAL_EMPTY_DB);
+}

@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}
+
+/* Print CSS specifically for A6 (105mm x 148mm) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #printable-facture-a6,
+  #printable-facture-a6 *,
+  #printable-fiche-interne,
+  #printable-fiche-interne *,
+  #printable-rapport,
+  #printable-rapport * {
+    visibility: visible;
+  }
+
+  #printable-facture-a6 {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 105mm !important;
+    min-height: 148mm !important;
+    margin: 0 !important;
+    padding: 8mm !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  #printable-fiche-interne,
+  #printable-rapport {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    box-shadow: none !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 4mm;
+  }
+}
+

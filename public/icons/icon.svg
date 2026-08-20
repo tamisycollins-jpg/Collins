@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- App Background (Rounded squircle for Android adaptive icon) -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)"/>
+  
+  <!-- Subtle inner border -->
+  <rect x="8" y="8" width="496" height="496" rx="107" fill="none" stroke="#ffffff" stroke-width="4" stroke-opacity="0.2"/>
+
+  <!-- Logo Graphics: Modern Letter K combined with Stock/Management Box -->
+  <g filter="url(#shadow)">
+    <!-- Main K vertical pillar -->
+    <rect x="135" y="120" width="56" height="272" rx="16" fill="#ffffff"/>
+    
+    <!-- Top diagonal leg with modern chevron cut -->
+    <path d="M190 260 L325 130 C336 120 355 125 360 140 L362 145 C368 158 364 172 352 182 L248 272 Z" fill="url(#accentGrad)"/>
+    
+    <!-- Bottom diagonal leg -->
+    <path d="M228 250 L345 365 C355 375 352 392 338 396 L330 398 C318 400 306 394 298 386 L185 285 Z" fill="#ffffff"/>
+
+    <!-- Small Golden/Cyan accent dot representing commission/financial tracking -->
+    <circle cx="360" cy="256" r="22" fill="#38bdf8"/>
+    <circle cx="360" cy="256" r="14" fill="#ffffff"/>
+  </g>
+  
+  <!-- Subtitle Badge text -->
+  <text x="256" y="445" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="4">KOSPAM</text>
+</svg>

@@ -1,0 +1,6 @@
+{
+  "name": "KOSPAM GESTION",
+  "description": "Application mobile de gestion pour dépositaire : articles, stock, arrivages, ventes, commissions, règlements et factures A6.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
