@@ -48,7 +48,8 @@ export function ArrivagesView({
     return (
       normalizeSearch(art.reference).includes(term) ||
       normalizeSearch(art.designation).includes(term) ||
-      normalizeSearch(art.affectation).includes(term)
+      normalizeSearch(art.affectation).includes(term) ||
+      (art.codeBarre ? normalizeSearch(art.codeBarre).includes(term) : false)
     );
   });
 
@@ -279,7 +280,7 @@ export function ArrivagesView({
                 type="text"
                 value={articleSearch}
                 onChange={(e) => setArticleSearch(e.target.value)}
-                placeholder="Filtrer la liste des articles..."
+                placeholder="Filtrer par réf, désignation, code-barres, véhicule..."
                 className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
               />
             </div>
@@ -293,7 +294,7 @@ export function ArrivagesView({
               <option value="">-- Choisir un article dans la liste --</option>
               {filteredArticleChoices.map((art) => (
                 <option key={art.id} value={art.id}>
-                  {art.reference} - {art.designation} (Stock actuel: {art.stockActuel})
+                  {art.reference} {art.codeBarre ? `[CB: ${art.codeBarre}]` : ''} - {art.designation} (Stock actuel: {art.stockActuel})
                 </option>
               ))}
             </select>

@@ -13,6 +13,8 @@ import {
   Package,
   Layers,
   Trash2,
+  Barcode,
+  ScanLine,
 } from 'lucide-react';
 import { Article, Parametres } from '../../types';
 import { addArticle, updateArticle, deleteArticle } from '../../services/storage';
@@ -43,6 +45,7 @@ export function ArticlesView({
 
   // Form states for Add
   const [formRef, setFormRef] = useState('');
+  const [formCodeBarre, setFormCodeBarre] = useState('');
   const [formDesignation, setFormDesignation] = useState('');
   const [formAffectation, setFormAffectation] = useState('');
   const [formPrix, setFormPrix] = useState('');
@@ -52,6 +55,7 @@ export function ArticlesView({
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Form states for Edit
+  const [editCodeBarre, setEditCodeBarre] = useState('');
   const [editDesignation, setEditDesignation] = useState('');
   const [editAffectation, setEditAffectation] = useState('');
   const [editPrix, setEditPrix] = useState('');
@@ -68,11 +72,13 @@ export function ArticlesView({
     const inRef = normalizeSearch(art.reference).includes(term);
     const inDesig = normalizeSearch(art.designation).includes(term);
     const inVehic = normalizeSearch(art.affectation).includes(term);
-    return inRef || inDesig || inVehic;
+    const inBarcode = art.codeBarre ? normalizeSearch(art.codeBarre).includes(term) : false;
+    return inRef || inDesig || inVehic || inBarcode;
   });
 
   const handleOpenAdd = () => {
     setFormRef('');
+    setFormCodeBarre('');
     setFormDesignation('');
     setFormAffectation('');
     setFormPrix('');
@@ -98,6 +104,7 @@ export function ArticlesView({
 
       const created = addArticle({
         reference: formRef,
+        codeBarre: formCodeBarre.trim() || undefined,
         designation: formDesignation,
         affectation: formAffectation,
         prixVente: prix,
@@ -117,6 +124,7 @@ export function ArticlesView({
 
   const handleOpenEdit = (article: Article) => {
     setEditingArticle(article);
+    setEditCodeBarre(article.codeBarre || '');
     setEditDesignation(article.designation);
     setEditAffectation(article.affectation || '');
     setEditPrix(String(article.prixVente));
@@ -136,6 +144,7 @@ export function ArticlesView({
       const seuil = parseInt(editSeuilMin, 10);
 
       updateArticle(editingArticle.id, {
+        codeBarre: editCodeBarre.trim() || undefined,
         designation: editDesignation,
         affectation: editAffectation,
         prixVente: prix,
@@ -207,7 +216,7 @@ export function ArticlesView({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Rechercher par référence, désignation, véhicule (ex: Cruze, 13272719)..."
+            placeholder="Rechercher par référence, désignation, code-barres (scanner), véhicule (ex: Cruze, 13272719)..."
             className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
           />
           {searchTerm && (
@@ -302,11 +311,19 @@ export function ArticlesView({
                 }`}
               >
                 <div>
-                  {/* Top line: Reference + Status */}
+                  {/* Top line: Reference + Code-barres + Status */}
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="font-mono font-bold text-xs bg-slate-100 text-blue-900 px-2 py-0.5 rounded-md border border-slate-200">
-                      {article.reference}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono font-bold text-xs bg-slate-100 text-blue-900 px-2 py-0.5 rounded-md border border-slate-200">
+                        {article.reference}
+                      </span>
+                      {article.codeBarre && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[11px] bg-slate-50 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200" title="Code-barres">
+                          <Barcode className="w-3 h-3 text-slate-500" />
+                          <span>{article.codeBarre}</span>
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1.5">
                       {article.status === 'ACTIF' ? (
                         <Badge variant="success" size="sm">
@@ -432,19 +449,37 @@ export function ArticlesView({
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-              Référence <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={formRef}
-              onChange={(e) => setFormRef(e.target.value.toUpperCase())}
-              placeholder="Ex: 13272719, FILT-001..."
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm font-bold focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">La référence doit être unique.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Référence interne <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={formRef}
+                onChange={(e) => setFormRef(e.target.value.toUpperCase())}
+                placeholder="Ex: 13272719, FILT-001..."
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm font-bold focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">La référence doit être unique.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1 flex items-center gap-1">
+                <Barcode className="w-3.5 h-3.5 text-slate-500" />
+                <span>Code-barres / EAN</span>
+                <span className="text-[10px] text-slate-400 font-normal lowercase">(optionnel)</span>
+              </label>
+              <input
+                type="text"
+                value={formCodeBarre}
+                onChange={(e) => setFormCodeBarre(e.target.value)}
+                placeholder="Ex: 3700123456789 ou scanner..."
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">Pour recherche rapide ou douchette.</p>
+            </div>
           </div>
 
           <div>
@@ -558,10 +593,26 @@ export function ArticlesView({
               </div>
             )}
 
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-              <span className="text-xs text-slate-500 font-medium">Référence (non modifiable) :</span>
-              <div className="font-mono font-bold text-sm text-slate-900 mt-0.5">
-                {editingArticle.reference}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="text-xs text-slate-500 font-medium">Référence (non modifiable) :</span>
+                <div className="font-mono font-bold text-sm text-slate-900 mt-0.5">
+                  {editingArticle.reference}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1 flex items-center gap-1">
+                  <Barcode className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Code-barres / EAN</span>
+                </label>
+                <input
+                  type="text"
+                  value={editCodeBarre}
+                  onChange={(e) => setEditCodeBarre(e.target.value)}
+                  placeholder="Ex: 3700123456789 ou scanner..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
               </div>
             </div>
 

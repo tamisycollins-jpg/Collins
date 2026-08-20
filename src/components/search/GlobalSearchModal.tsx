@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Package, ShoppingCart, DollarSign, X, ArrowRight, Car, User } from 'lucide-react';
+import { Search, Package, ShoppingCart, DollarSign, X, ArrowRight, Car, User, Barcode } from 'lucide-react';
 import { DatabaseSchema, Vente, Article, Reglement } from '../../types';
 import { formatMontant, formatDate, normalizeSearch } from '../../utils/formatters';
 import { Modal } from '../common/Modal';
@@ -30,7 +30,8 @@ export function GlobalSearchModal({
         (a) =>
           normalizeSearch(a.reference).includes(normalized) ||
           normalizeSearch(a.designation).includes(normalized) ||
-          normalizeSearch(a.affectation).includes(normalized)
+          normalizeSearch(a.affectation).includes(normalized) ||
+          (a.codeBarre && normalizeSearch(a.codeBarre).includes(normalized))
       )
     : [];
 
@@ -113,10 +114,16 @@ export function GlobalSearchModal({
                       className="p-3 bg-white hover:bg-slate-50 transition-colors flex items-center justify-between cursor-pointer text-xs"
                     >
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono font-bold text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded">
                             {art.reference}
                           </span>
+                          {art.codeBarre && (
+                            <span className="inline-flex items-center gap-1 font-mono text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                              <Barcode className="w-3 h-3 text-slate-500" />
+                              <span>{art.codeBarre}</span>
+                            </span>
+                          )}
                           <span className="font-bold text-slate-900">{art.designation}</span>
                         </div>
                         {art.affectation && (

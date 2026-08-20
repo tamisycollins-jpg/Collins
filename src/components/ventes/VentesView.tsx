@@ -16,6 +16,8 @@ import {
   X,
   CreditCard,
   Percent,
+  Barcode,
+  ScanLine,
 } from 'lucide-react';
 import { Vente, Article, Parametres, LigneVenteInput } from '../../types';
 import { createVenteOnlineAtomic, annulerVente } from '../../services/storage';
@@ -111,9 +113,42 @@ export function VentesView({
     return (
       normalizeSearch(art.reference).includes(term) ||
       normalizeSearch(art.designation).includes(term) ||
-      normalizeSearch(art.affectation).includes(term)
+      normalizeSearch(art.affectation).includes(term) ||
+      (art.codeBarre ? normalizeSearch(art.codeBarre).includes(term) : false)
     );
   });
+
+  // Handle barcode scanner Enter key or direct exact match
+  const handleItemSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const raw = itemSearch.trim();
+      if (!raw) return;
+
+      // Check exact barcode match first
+      const exactBarcode = activeArticles.find(
+        (a) => a.codeBarre && a.codeBarre.toLowerCase() === raw.toLowerCase()
+      );
+      if (exactBarcode) {
+        setSelectedArticleId(exactBarcode.id);
+        return;
+      }
+
+      // Check exact reference match
+      const exactRef = activeArticles.find(
+        (a) => a.reference.toLowerCase() === raw.toLowerCase()
+      );
+      if (exactRef) {
+        setSelectedArticleId(exactRef.id);
+        return;
+      }
+
+      // If only one filtered item remains, auto-select it
+      if (filteredArticleChoices.length === 1) {
+        setSelectedArticleId(filteredArticleChoices[0].id);
+      }
+    }
+  };
 
   const selectedArticleObj = articles.find((a) => a.id === selectedArticleId);
 
@@ -542,14 +577,18 @@ export function VentesView({
 
             {/* Quick search input */}
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <ScanLine className="w-3.5 h-3.5 text-blue-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={itemSearch}
                 onChange={(e) => setItemSearch(e.target.value)}
-                placeholder="Rechercher par référence, désignation, véhicule..."
-                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500"
+                onKeyDown={handleItemSearchKeyDown}
+                placeholder="Scanner le code-barres ou chercher par réf, nom..."
+                className="w-full pl-8 pr-16 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                [Entrée]
+              </span>
             </div>
 
             {/* Article Select */}
@@ -558,14 +597,14 @@ export function VentesView({
               onChange={(e) => setSelectedArticleId(e.target.value)}
               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">-- Choisir un article --</option>
+              <option value="">-- Choisir un article ({filteredArticleChoices.length} trouvé{filteredArticleChoices.length > 1 ? 's' : ''}) --</option>
               {filteredArticleChoices.map((art) => (
                 <option
                   key={art.id}
                   value={art.id}
                   disabled={art.stockActuel <= 0}
                 >
-                  {art.reference} - {art.designation} (Stock : {art.stockActuel}) -{' '}
+                  {art.reference} {art.codeBarre ? `[CB: ${art.codeBarre}]` : ''} - {art.designation} (Stock : {art.stockActuel}) -{' '}
                   {formatMontant(art.prixVente, parametres.devise)}
                 </option>
               ))}
@@ -583,6 +622,12 @@ export function VentesView({
                     <span className="text-slate-400">Véhicule :</span>{' '}
                     <span className="font-semibold text-slate-800">{selectedArticleObj.affectation || '-'}</span>
                   </div>
+                  {selectedArticleObj.codeBarre && (
+                    <div className="col-span-2 flex items-center gap-1.5 font-mono text-[11px] bg-slate-50 px-2 py-1 rounded border border-slate-200 text-slate-700">
+                      <Barcode className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Code-barres : <strong className="text-slate-900">{selectedArticleObj.codeBarre}</strong></span>
+                    </div>
+                  )}
                   <div>
                     <span className="text-slate-400">Prix unitaire :</span>{' '}
                     <span className="font-bold text-slate-900">

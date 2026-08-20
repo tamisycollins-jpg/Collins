@@ -11,6 +11,7 @@ import {
   RefreshCw,
   X,
   FileText,
+  Barcode,
 } from 'lucide-react';
 import { Article, MouvementStock, Parametres } from '../../types';
 import { formatMontant, formatDateTime, normalizeSearch } from '../../utils/formatters';
@@ -64,7 +65,8 @@ export function StockView({
     return (
       normalizeSearch(art.reference).includes(term) ||
       normalizeSearch(art.designation).includes(term) ||
-      normalizeSearch(art.affectation).includes(term)
+      normalizeSearch(art.affectation).includes(term) ||
+      (art.codeBarre ? normalizeSearch(art.codeBarre).includes(term) : false)
     );
   });
 
@@ -205,7 +207,7 @@ export function StockView({
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={
               activeTab === 'ETAT'
-                ? 'Rechercher un article, référence, véhicule...'
+                ? 'Rechercher un article, référence, code-barres (scanner), véhicule...'
                 : 'Filtrer les mouvements par référence, motif, N° facture...'
             }
             className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
@@ -317,10 +319,18 @@ export function StockView({
                     className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors"
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="font-mono font-bold text-xs bg-slate-100 text-blue-900 px-2 py-0.5 rounded-md border border-slate-200">
-                          {article.reference}
-                        </span>
+                      <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-bold text-xs bg-slate-100 text-blue-900 px-2 py-0.5 rounded-md border border-slate-200">
+                            {article.reference}
+                          </span>
+                          {article.codeBarre && (
+                            <span className="inline-flex items-center gap-1 font-mono text-[10px] bg-slate-50 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200" title="Code-barres">
+                              <Barcode className="w-3 h-3 text-slate-500" />
+                              <span>{article.codeBarre}</span>
+                            </span>
+                          )}
+                        </div>
                         {isOutOfStock ? (
                           <span className="text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1">
                             <span>🔴</span> Rupture

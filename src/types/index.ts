@@ -6,6 +6,7 @@ export interface Article {
   prixVente: number;
   stockActuel: number;
   seuilMin: number;
+  codeBarre?: string; // Code-barres / EAN / SKU pour scanner
   status: 'ACTIF' | 'INACTIF';
   createdAt: string;
   updatedAt: string;

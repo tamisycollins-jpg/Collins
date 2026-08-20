@@ -464,6 +464,7 @@ export function addArticle(data: {
   prixVente: number;
   stockInitial: number;
   seuilMin?: number;
+  codeBarre?: string;
 }): Article {
   const db = getDatabase();
   const cleanRef = data.reference.trim().toUpperCase();
@@ -491,6 +492,7 @@ export function addArticle(data: {
     prixVente: Number(data.prixVente) || 0,
     stockActuel: initialQty,
     seuilMin: Math.max(0, minThreshold),
+    codeBarre: data.codeBarre ? data.codeBarre.trim() : undefined,
     status: 'ACTIF',
     createdAt: now,
     updatedAt: now,
@@ -534,6 +536,7 @@ export function updateArticle(
     affectation?: string;
     prixVente?: number;
     seuilMin?: number;
+    codeBarre?: string;
     status?: 'ACTIF' | 'INACTIF';
   }
 ): Article {
@@ -550,6 +553,7 @@ export function updateArticle(
     affectation: data.affectation !== undefined ? data.affectation.trim() : existing.affectation,
     prixVente: data.prixVente !== undefined ? Number(data.prixVente) : existing.prixVente,
     seuilMin: data.seuilMin !== undefined ? Number(data.seuilMin) : existing.seuilMin,
+    codeBarre: data.codeBarre !== undefined ? (data.codeBarre.trim() ? data.codeBarre.trim() : undefined) : existing.codeBarre,
     status: data.status !== undefined ? data.status : existing.status,
     updatedAt: now,
   };
