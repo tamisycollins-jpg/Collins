@@ -1,7 +1,17 @@
-import React, { useRef } from 'react';
-import { Printer, Share2, MessageCircle, Download, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import {
+  Printer,
+  Share2,
+  MessageCircle,
+  Download,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Sliders,
+} from 'lucide-react';
 import { Vente, Parametres } from '../../types';
 import { formatMontant, formatDateHeureOnly, generateWhatsAppMessage } from '../../utils/formatters';
+import { printDirectInvoice, PrintFormat } from '../../utils/printInvoice';
 import { Modal } from '../common/Modal';
 
 interface FactureA6ModalProps {
@@ -18,6 +28,7 @@ export function FactureA6Modal({
   parametres,
 }: FactureA6ModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
+  const [printFormat, setPrintFormat] = useState<PrintFormat>('A6');
 
   if (!vente) return null;
 
@@ -25,7 +36,7 @@ export function FactureA6Modal({
   const isAnnulee = vente.status === 'ANNULEE';
 
   const handlePrint = () => {
-    window.print();
+    printDirectInvoice(vente, parametres, printFormat);
   };
 
   const handleWhatsApp = () => {
@@ -56,7 +67,7 @@ export function FactureA6Modal({
       onClose={onClose}
       title={
         <span className="flex items-center gap-2">
-          <span>Facture A6 Client</span>
+          <span>Facture Client</span>
           <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full">
             {vente.numeroFacture}
           </span>
@@ -65,46 +76,73 @@ export function FactureA6Modal({
       maxWidth="md"
     >
       <div className="space-y-4">
-        {/* Action toolbar */}
-        <div className="flex flex-wrap items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl print:hidden">
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium shadow-xs transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Imprimer A6</span>
-          </button>
+        {/* Print Format Selector & Action Toolbar */}
+        <div className="space-y-2 p-2.5 bg-slate-50 border border-slate-200 rounded-2xl print:hidden">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="text-[11px] font-bold text-slate-700">Format d'impression :</span>
+            <div className="inline-flex bg-slate-200 p-0.5 rounded-lg text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setPrintFormat('A6')}
+                className={`py-1 px-2.5 rounded-md transition-all cursor-pointer ${
+                  printFormat === 'A6' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                A6 (105×148mm)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFormat('TICKET_80MM')}
+                className={`py-1 px-2.5 rounded-md transition-all cursor-pointer ${
+                  printFormat === 'TICKET_80MM' ? 'bg-white text-blue-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Ticket Caisse (80mm)
+              </button>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleWhatsApp}
-            className="flex items-center justify-center gap-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow-xs transition-colors"
-            title="Envoyer sur WhatsApp"
-          >
-            <MessageCircle className="w-4 h-4" />
-            <span className="hidden sm:inline">WhatsApp</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="flex-1 min-w-[140px] flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-xl text-xs font-extrabold shadow-sm transition-colors cursor-pointer"
+            >
+              <Printer className="w-4 h-4 text-emerald-400" />
+              <span>Imprimer Facture ({printFormat === 'A6' ? 'A6' : '80mm'})</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleShare}
-            className="flex items-center justify-center gap-2 py-2 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-medium transition-colors"
-            title="Partager"
-          >
-            <Share2 className="w-4 h-4" />
-            <span className="hidden sm:inline">Partager</span>
-          </button>
+            <button
+              type="button"
+              onClick={handleWhatsApp}
+              className="flex items-center justify-center gap-2 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              title="Envoyer sur WhatsApp"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">WhatsApp</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShare}
+              className="flex items-center justify-center gap-2 py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              title="Partager"
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Partager</span>
+            </button>
+          </div>
         </div>
 
-        {/* FACTURE A6 PREVIEW BOX */}
+        {/* FACTURE SCREEN PREVIEW BOX */}
         <div className="flex justify-center bg-slate-200 p-2 sm:p-4 rounded-xl overflow-x-auto">
-          {/* Exact A6 proportions (approx 105mm x 148mm) in screen CSS */}
           <div
             ref={printRef}
             id="printable-facture-a6"
-            className="w-full max-w-[390px] bg-white text-slate-900 p-4 sm:p-5 shadow-lg rounded-md border border-slate-300 relative flex flex-col justify-between text-xs leading-tight"
-            style={{ minHeight: '520px' }}
+            className={`w-full bg-white text-slate-900 p-4 sm:p-5 shadow-lg rounded-md border border-slate-300 relative flex flex-col justify-between text-xs leading-tight ${
+              printFormat === 'TICKET_80MM' ? 'max-w-[320px]' : 'max-w-[390px]'
+            }`}
+            style={{ minHeight: '480px' }}
           >
             {/* Watermark if Cancelled */}
             {isAnnulee && (
@@ -119,7 +157,7 @@ export function FactureA6Modal({
               {/* Header */}
               <div className="text-center pb-3 border-b border-slate-900/80">
                 <h1 className="text-base font-extrabold tracking-wide uppercase text-slate-950">
-                  {parametres.nomEntreprise}
+                  {parametres.nomEntreprise || 'CLINIC AUTO'}
                 </h1>
                 {parametres.slogan && (
                   <p className="text-[10px] text-slate-600 font-medium italic mt-0.5">
@@ -183,10 +221,10 @@ export function FactureA6Modal({
                         <td className="py-1.5 text-center font-semibold text-slate-900">
                           {ligne.quantite}
                         </td>
-                        <td className="py-1.5 text-right font-medium text-slate-700">
+                        <td className="py-1.5 text-right font-medium text-slate-700 whitespace-nowrap">
                           {formatMontant(ligne.prixUnitaire, '')}
                         </td>
-                        <td className="py-1.5 text-right font-bold text-slate-950">
+                        <td className="py-1.5 text-right font-bold text-slate-950 whitespace-nowrap">
                           {formatMontant(ligne.totalLigne, '')}
                         </td>
                       </tr>
@@ -235,15 +273,15 @@ export function FactureA6Modal({
                   <p className="italic text-[8px]">{parametres.conditionsVente}</p>
                 )}
                 <p className="text-[8px] text-slate-400 font-mono mt-1">
-                  Édité le {date} {heure} • Format A6
+                  Édité le {date} {heure} • {printFormat}
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="text-center text-xs text-slate-500">
-          Ce document est optimisé pour impression papier A6 (105×148mm) ou partage direct.
+        <div className="text-center text-[11px] text-slate-500">
+          Document calibré sans coupure de marge pour imprimantes A6, tickets 80mm et A4.
         </div>
       </div>
     </Modal>

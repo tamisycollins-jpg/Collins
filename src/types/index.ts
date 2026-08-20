@@ -130,6 +130,15 @@ export interface HistoriqueAction {
   details?: Record<string, any>;
 }
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: 'ADMIN' | 'GESTIONNAIRE' | 'CAISSE';
+  loginTime: string;
+}
+
+export type NetworkSyncStatus = 'CONNECTE' | 'SYNCHRONISATION' | 'HORS_LIGNE' | 'ERREUR';
+
 export interface DatabaseSchema {
   articles: Article[];
   mouvements: MouvementStock[];

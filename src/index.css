@@ -12,48 +12,98 @@
   }
 }
 
-/* Print CSS specifically for A6 (105mm x 148mm) */
+/* ========================================================= */
+/* BULLET-PROOF PRINT STYLES (A6, TICKET 80mm & A4)          */
+/* ========================================================= */
 @media print {
-  body * {
-    visibility: hidden;
-  }
-
-  #printable-facture-a6,
-  #printable-facture-a6 *,
-  #printable-fiche-interne,
-  #printable-fiche-interne *,
-  #printable-rapport,
-  #printable-rapport * {
-    visibility: visible;
-  }
-
-  #printable-facture-a6 {
-    position: absolute;
-    left: 0;
-    top: 0;
+  html, body {
     width: 100% !important;
-    max-width: 105mm !important;
-    min-height: 148mm !important;
+    height: auto !important;
     margin: 0 !important;
-    padding: 8mm !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide everything on page by default */
+  body > * {
+    display: none !important;
+  }
+
+  /* Unhide root container hierarchy strictly for the active modal print section */
+  #root,
+  body > #root {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Make sure modal overlays do not block or offset */
+  .fixed, .inset-0, .backdrop-blur-sm, [role="dialog"] {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
     box-shadow: none !important;
     border: none !important;
   }
 
+  /* Hide non-printable elements */
+  .print\:hidden,
+  header,
+  nav,
+  button,
+  .modal-header-actions {
+    display: none !important;
+  }
+
+  /* Printable Containers */
+  #printable-facture-a6,
   #printable-fiche-interne,
   #printable-rapport {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 10mm !important;
+    display: block !important;
+    visibility: visible !important;
+    margin: 0 auto !important;
+    padding: 4mm 6mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
     box-shadow: none !important;
+    border: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #printable-facture-a6 {
+    width: 100% !important;
+    max-width: 100mm !important;
+  }
+
+  #printable-facture-80mm {
+    width: 100% !important;
+    max-width: 72mm !important;
+    font-size: 10px !important;
+  }
+
+  #printable-fiche-interne,
+  #printable-rapport {
+    width: 100% !important;
+    max-width: 190mm !important;
+  }
+
+  tr, td, th, .break-inside-avoid {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   @page {
     size: auto;
-    margin: 4mm;
+    margin: 3mm 4mm;
   }
 }
 

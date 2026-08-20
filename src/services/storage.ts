@@ -8,17 +8,20 @@ import {
   Parametres,
   HistoriqueAction,
   DatabaseSchema,
+  AuthUser,
+  NetworkSyncStatus,
 } from '../types';
 
 const STORAGE_KEY = 'kospam_gestion_db_v1';
+const AUTH_KEY = 'kospam_gestion_auth_user_v1';
 
 export const DEFAULT_PARAMETRES: Parametres = {
-  nomEntreprise: 'KOSPAM GESTION',
+  nomEntreprise: 'CLINIC AUTO',
   slogan: 'Dépôt & Distribution de Pièces Détachées',
   logoUrl: '',
   adresse: 'Madagascar',
   telephone: '+261 34 00 000 00',
-  email: 'contact@kospam.mg',
+  email: 'contact@clinicauto.mg',
   nifStat: '',
   devise: 'Ar',
   tauxCommissionDefaut: 10,
@@ -40,6 +43,35 @@ const INITIAL_EMPTY_DB: DatabaseSchema = {
   lastPaymentSequence: 0,
   version: '1.0.0',
 };
+
+// Network status listener
+let currentNetworkStatus: NetworkSyncStatus = 'CONNECTE';
+type NetworkStatusListener = (status: NetworkSyncStatus) => void;
+const networkListeners: Set<NetworkStatusListener> = new Set();
+
+export function getNetworkStatus(): NetworkSyncStatus {
+  return currentNetworkStatus;
+}
+
+export function subscribeToNetworkStatus(listener: NetworkStatusListener): () => void {
+  networkListeners.add(listener);
+  return () => {
+    networkListeners.delete(listener);
+  };
+}
+
+function updateNetworkStatus(status: NetworkSyncStatus) {
+  if (currentNetworkStatus !== status) {
+    currentNetworkStatus = status;
+    networkListeners.forEach((l) => {
+      try {
+        l(status);
+      } catch (e) {
+        console.error(e);
+      }
+    });
+  }
+}
 
 // Event listener mechanism for reactivity
 type Listener = (db: DatabaseSchema) => void;
@@ -69,12 +101,12 @@ export function getDatabase(): DatabaseSchema {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       // First boot: initialize empty DB
-      saveDatabase(INITIAL_EMPTY_DB);
+      saveDatabase(INITIAL_EMPTY_DB, false);
       return INITIAL_EMPTY_DB;
     }
     const parsed = JSON.parse(raw) as DatabaseSchema;
     // Ensure all arrays exist
-    return {
+    const dbResult: DatabaseSchema = {
       articles: parsed.articles || [],
       mouvements: parsed.mouvements || [],
       arrivages: parsed.arrivages || [],
@@ -87,20 +119,180 @@ export function getDatabase(): DatabaseSchema {
       lastPaymentSequence: parsed.lastPaymentSequence || 0,
       version: parsed.version || '1.0.0',
     };
+
+    if (!dbResult.parametres.devise || dbResult.parametres.devise === 'FCFA') {
+      dbResult.parametres.devise = 'Ar';
+    }
+
+    return dbResult;
   } catch (err) {
     console.error('Error loading database, returning empty DB:', err);
     return INITIAL_EMPTY_DB;
   }
 }
 
-export function saveDatabase(db: DatabaseSchema): void {
+let isSyncingToServer = false;
+
+export function saveDatabase(db: DatabaseSchema, triggerServerPush: boolean = true): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     notifyListeners();
+
+    if (triggerServerPush && !isSyncingToServer) {
+      pushToServerAsync(db);
+    }
   } catch (err) {
     console.error('Error saving database to localStorage:', err);
     throw new Error('Erreur lors de la sauvegarde locale.');
   }
+}
+
+// Push local data to the central network server
+async function pushToServerAsync(db: DatabaseSchema) {
+  try {
+    isSyncingToServer = true;
+    updateNetworkStatus('SYNCHRONISATION');
+
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ db }),
+    });
+
+    if (res.ok) {
+      updateNetworkStatus('CONNECTE');
+    } else {
+      updateNetworkStatus('HORS_LIGNE');
+    }
+  } catch (err) {
+    updateNetworkStatus('HORS_LIGNE');
+  } finally {
+    isSyncingToServer = false;
+  }
+}
+
+// Pull latest data from central server and merge intelligently
+export async function pullDatabaseFromServer(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/sync');
+    if (!res.ok) {
+      updateNetworkStatus('HORS_LIGNE');
+      return false;
+    }
+
+    const json = await res.json();
+    if (json && json.db) {
+      const serverDb = json.db as DatabaseSchema;
+      const localDb = getDatabase();
+
+      // Check if server has newer or different counts
+      const hasDifferences =
+        serverDb.ventes.length !== localDb.ventes.length ||
+        serverDb.articles.length !== localDb.articles.length ||
+        serverDb.arrivages.length !== localDb.arrivages.length ||
+        serverDb.reglements.length !== localDb.reglements.length ||
+        JSON.stringify(serverDb.parametres) !== JSON.stringify(localDb.parametres);
+
+      if (hasDifferences) {
+        // Merge strategy: server is the single source of truth in network mode
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverDb));
+        notifyListeners();
+      }
+
+      updateNetworkStatus('CONNECTE');
+      return true;
+    }
+    return false;
+  } catch (err) {
+    updateNetworkStatus('HORS_LIGNE');
+    return false;
+  }
+}
+
+// Initialize background network polling (every 3.5 seconds)
+let syncInterval: any = null;
+export function startNetworkAutoSync() {
+  if (syncInterval) return;
+  // Initial pull
+  pullDatabaseFromServer();
+
+  syncInterval = setInterval(() => {
+    pullDatabaseFromServer();
+  }, 3500);
+
+  // Sync on window focus / online event
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', () => pullDatabaseFromServer());
+    window.addEventListener('online', () => pullDatabaseFromServer());
+  }
+}
+
+// ==========================================
+// AUTHENTICATION MANAGEMENT
+// ==========================================
+export function getCurrentUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+export function isUserLoggedIn(): boolean {
+  return !!getCurrentUser();
+}
+
+export async function loginUser(username: string, password: string): Promise<{ success: boolean; user?: AuthUser; message?: string }> {
+  const cleanUser = String(username || '').trim();
+  const cleanPass = String(password || '').trim();
+
+  // Try API first
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: cleanUser, password: cleanPass }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.user) {
+        localStorage.setItem(AUTH_KEY, JSON.stringify(data.user));
+        pullDatabaseFromServer();
+        return { success: true, user: data.user };
+      }
+    }
+  } catch (err) {
+    console.warn('Backend login unavailable, fallback to local verification', err);
+  }
+
+  // Local / Offline fallback verification for requested credentials:
+  // NOM: Clinic Auto
+  // MDP: Clinic auto123
+  const isMatchUser = cleanUser.toLowerCase() === 'clinic auto';
+  const isMatchPass = cleanPass === 'Clinic auto123' || cleanPass.toLowerCase() === 'clinic auto123';
+
+  if (isMatchUser && isMatchPass) {
+    const user: AuthUser = {
+      id: 'usr_clinic_auto',
+      username: 'Clinic Auto',
+      role: 'ADMIN',
+      loginTime: new Date().toISOString(),
+    };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(user));
+    return { success: true, user };
+  }
+
+  return {
+    success: false,
+    message: 'Identifiant ou mot de passe incorrect. (Ex: Clinic Auto / Clinic auto123)',
+  };
+}
+
+export function logoutUser(): void {
+  localStorage.removeItem(AUTH_KEY);
 }
 
 // Generate unique sequential IDs

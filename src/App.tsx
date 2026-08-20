@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { DatabaseSchema, Vente, Article, Arrivage } from './types';
-import { getDatabase, subscribeToDatabase } from './services/storage';
+import { DatabaseSchema, Vente, Article, Arrivage, AuthUser } from './types';
+import {
+  getDatabase,
+  subscribeToDatabase,
+  getCurrentUser,
+  logoutUser,
+  startNetworkAutoSync,
+} from './services/storage';
+import { LoginScreen } from './components/auth/LoginScreen';
 import { Header } from './components/layout/Header';
 import { BottomNav, NavTab } from './components/layout/BottomNav';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -17,6 +24,7 @@ import { GlobalSearchModal } from './components/search/GlobalSearchModal';
 import { InstallAndroidModal } from './components/common/InstallAndroidModal';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(getCurrentUser);
   const [db, setDb] = useState<DatabaseSchema>(getDatabase);
   const [currentTab, setCurrentTab] = useState<NavTab>('accueil');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -27,8 +35,9 @@ export default function App() {
   const [selectedVenteForA6, setSelectedVenteForA6] = useState<Vente | null>(null);
   const [selectedVenteForInterne, setSelectedVenteForInterne] = useState<Vente | null>(null);
 
-  // Subscribe to storage changes
+  // Subscribe to storage changes & start real-time network sync
   useEffect(() => {
+    startNetworkAutoSync();
     const unsubscribe = subscribeToDatabase((newDb) => {
       setDb(newDb);
     });
@@ -37,7 +46,7 @@ export default function App() {
 
   // Compute badges for bottom navigation
   const stockAlertsCount = db.articles.filter(
-    (a) => a.status === 'ACTIF' && a.stockActuel <= a.seuilStock
+    (a) => a.status === 'ACTIF' && a.stockActuel <= (a.seuilMin ?? 2)
   ).length;
 
   const handleOpenNewSale = () => {
@@ -53,14 +62,26 @@ export default function App() {
     setSelectedVenteForA6(vente);
   };
 
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+  };
+
+  // If not logged in, show the Clinic Auto login portal
+  if (!currentUser) {
+    return <LoginScreen onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-blue-500 selection:text-white pb-safe">
       {/* Top Header */}
       <Header
         parametres={db.parametres}
+        user={currentUser}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenNewSale={handleOpenNewSale}
         onOpenInstallAndroid={() => setIsInstallAndroidOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
