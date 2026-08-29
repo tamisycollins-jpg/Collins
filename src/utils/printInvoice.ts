@@ -40,22 +40,29 @@ export function printDirectInvoice(vente: Vente, parametres: Parametres, format:
   <style>
     @page {
       size: ${format === 'TICKET_80MM' ? '80mm auto' : format === 'A6' ? '105mm 148mm' : 'A4'};
-      margin: ${format === 'TICKET_80MM' ? '2mm' : '4mm'};
+      margin: ${format === 'TICKET_80MM' ? '2mm' : '4mm 4.5mm'};
     }
     *, *:before, *:after {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
     }
+    html, body {
+      height: 100%;
+      background: #fff;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       font-size: ${fontSize};
-      color: #000;
-      background: #fff;
+      color: #0f172a;
       line-height: 1.25;
-      padding: ${format === 'TICKET_80MM' ? '4px' : '10px'};
+      padding: ${format === 'TICKET_80MM' ? '4px' : '2px 4px'};
       width: ${widthMm};
       margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: ${format === 'A6' ? '138mm' : 'auto'};
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
@@ -64,34 +71,74 @@ export function printDirectInvoice(vente: Vente, parametres: Parametres, format:
     .font-black { font-weight: 900; }
     .uppercase { text-transform: uppercase; }
     
+    .top-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
     .header {
       text-align: center;
-      border-bottom: 2px solid #000;
       padding-bottom: 6px;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
     .company-name {
-      font-size: ${format === 'TICKET_80MM' ? '14px' : '16px'};
+      font-size: ${format === 'TICKET_80MM' ? '15px' : '18px'};
       font-weight: 900;
       letter-spacing: 0.5px;
+      color: #020617;
     }
     .company-sub {
       font-size: 10px;
-      color: #333;
-      margin-top: 2px;
+      color: #475569;
+      margin-top: 1px;
+    }
+    .company-sub.italic {
+      font-style: italic;
+    }
+    .header-divider {
+      border: 0;
+      border-top: 1px solid #1e293b;
+      margin-top: 6px;
     }
 
     .meta-box {
-      border: 1px solid #000;
-      padding: 6px;
-      margin-bottom: 8px;
-      border-radius: 4px;
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      background: #f8fafc;
       font-size: 11px;
     }
     .meta-row {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 2px;
+      align-items: center;
+      margin-bottom: 3px;
+    }
+    .meta-row:last-child {
+      margin-bottom: 0;
+    }
+    .facture-title {
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: 0.3px;
+    }
+    .facture-num {
+      font-weight: 900;
+      color: #1e3a8a;
+      font-family: monospace, sans-serif;
+      font-size: 12px;
+    }
+    .facture-status-valid {
+      color: #047857;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .facture-status-cancel {
+      color: #dc2626;
+      font-weight: 900;
+      font-size: 11px;
     }
 
     table {
@@ -100,156 +147,215 @@ export function printDirectInvoice(vente: Vente, parametres: Parametres, format:
       margin-bottom: 8px;
     }
     th {
-      border-bottom: 1.5px solid #000;
+      border-bottom: 1.5px solid #0f172a;
       padding: 4px 2px;
-      font-size: 10px;
-      font-weight: 800;
+      font-size: 10.5px;
+      font-weight: 900;
       text-transform: uppercase;
+      color: #0f172a;
     }
     td {
-      padding: 4px 2px;
-      border-bottom: 1px dashed #ccc;
+      padding: 5px 2px;
+      border-bottom: 1px solid #f1f5f9;
       vertical-align: top;
       font-size: 11px;
     }
-    .col-des { width: 50%; }
-    .col-qty { width: 12%; text-align: center; }
-    .col-pu { width: 18%; text-align: right; }
-    .col-tot { width: 20%; text-align: right; font-weight: bold; }
+    .col-des { width: 48%; }
+    .col-qty { width: 12%; text-align: center; font-weight: 800; }
+    .col-pu { width: 20%; text-align: right; }
+    .col-tot { width: 20%; text-align: right; font-weight: 900; color: #020617; }
 
-    .totals {
-      border-top: 2px solid #000;
-      padding-top: 6px;
-      margin-top: 4px;
+    .item-name {
+      font-weight: 900;
+      text-transform: uppercase;
+      color: #0f172a;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .item-ref {
+      font-size: 9px;
+      color: #64748b;
+      font-family: monospace, sans-serif;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+
+    /* Bottom Total & Footer placement */
+    .bottom-section {
+      margin-top: auto;
+      padding-top: 8px;
+      border-top: 2px solid #0f172a;
     }
     .total-row {
       display: flex;
       justify-content: space-between;
+      align-items: center;
       margin-bottom: 3px;
-      font-size: 12px;
+      font-size: 11.5px;
     }
     .grand-total {
       font-size: ${format === 'TICKET_80MM' ? '14px' : '15px'};
       font-weight: 900;
-      border-top: 1px solid #000;
-      border-bottom: 1px solid #000;
-      padding: 4px 0;
-      margin: 4px 0;
+      color: #020617;
+      margin-bottom: 5px;
+    }
+    .grand-total-amount {
+      font-size: ${format === 'TICKET_80MM' ? '15px' : '16px'};
+      font-weight: 900;
+      font-family: monospace, sans-serif;
+    }
+    .paid-amount {
+      color: #047857;
+      font-weight: 700;
+    }
+    .due-amount {
+      color: #b91c1c;
+      font-weight: 900;
+    }
+    .settled-status {
+      color: #047857;
+      font-weight: 700;
     }
 
     .footer {
-      margin-top: 10px;
-      border-top: 1px solid #ddd;
+      margin-top: 8px;
+      border-top: 1px solid #e2e8f0;
       padding-top: 6px;
       text-align: center;
-      font-size: 9px;
-      color: #444;
+      font-size: 9.5px;
+      color: #475569;
     }
+    .footer-thanks {
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 1px;
+    }
+    .footer-conditions {
+      font-style: italic;
+      font-size: 8.5px;
+      color: #64748b;
+    }
+    .footer-stamp {
+      margin-top: 3px;
+      font-size: 8px;
+      color: #94a3b8;
+      font-family: monospace;
+    }
+
     .watermark-cancelled {
-      color: #cc0000;
-      font-size: 24px;
+      color: #dc2626;
+      font-size: 20px;
       font-weight: 900;
       text-align: center;
-      border: 3px solid #cc0000;
+      border: 3px solid #dc2626;
       padding: 4px;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       text-transform: uppercase;
       border-radius: 6px;
+      background: #fef2f2;
     }
   </style>
 </head>
 <body>
-  ${isAnnulee ? '<div class="watermark-cancelled">*** FACTURE ANNULÉE ***</div>' : ''}
+  <div class="top-container">
+    ${isAnnulee ? '<div class="watermark-cancelled">*** FACTURE ANNULÉE ***</div>' : ''}
 
-  <div class="header">
-    <div class="company-name uppercase">${parametres.nomEntreprise || 'CLINIC AUTO'}</div>
-    ${parametres.slogan ? `<div class="company-sub">${parametres.slogan}</div>` : ''}
-    <div class="company-sub">
-      ${parametres.telephone ? `Tél : ${parametres.telephone}` : ''}
-      ${parametres.adresse ? ` • ${parametres.adresse}` : ''}
+    <div class="header">
+      <div class="company-name uppercase">${parametres.nomEntreprise || 'CLINIC AUTO'}</div>
+      ${parametres.slogan ? `<div class="company-sub italic">${parametres.slogan}</div>` : ''}
+      <div class="company-sub">
+        ${parametres.adresse ? `<div>${parametres.adresse}</div>` : ''}
+        ${parametres.telephone ? `<div>Tél : ${parametres.telephone}</div>` : ''}
+        ${parametres.email ? `<div>Email : ${parametres.email}</div>` : ''}
+      </div>
+      <hr class="header-divider" />
     </div>
-  </div>
 
-  <div class="meta-box">
-    <div class="meta-row">
-      <span class="font-bold">FACTURE N° :</span>
-      <span class="font-bold">${vente.numeroFacture}</span>
-    </div>
-    <div class="meta-row">
-      <span>Date : ${date}</span>
-      <span>Heure : ${heure}</span>
-    </div>
-    ${
-      vente.clientNom
-        ? `
-    <div class="meta-row" style="margin-top: 4px; border-top: 1px dashed #ccc; padding-top: 3px;">
-      <span class="font-bold">Client :</span>
-      <span>${vente.clientNom} ${vente.clientTelephone ? `(${vente.clientTelephone})` : ''}</span>
-    </div>
-    `
-        : ''
-    }
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th class="text-left col-des">Désignation</th>
-        <th class="col-qty">Qté</th>
-        <th class="col-pu">P.U</th>
-        <th class="col-tot">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${vente.lignes
-        .map(
-          (l) => `
-        <tr>
-          <td class="col-des">
-            <div class="font-bold">${l.designation}</div>
-            <div style="font-size: 9px; color: #555;">Réf: ${l.reference} ${l.affectation ? `• ${l.affectation}` : ''}</div>
-          </td>
-          <td class="col-qty font-bold">${l.quantite}</td>
-          <td class="col-pu">${formatMontant(l.prixUnitaire, '')}</td>
-          <td class="col-tot">${formatMontant(l.totalLigne, '')}</td>
-        </tr>
+    <div class="meta-box">
+      <div class="meta-row">
+        <span class="facture-title">FACTURE N°</span>
+        <span class="facture-num">${vente.numeroFacture}</span>
+      </div>
+      <div class="meta-row">
+        <span style="color: #475569;">Date : ${date} à ${heure}</span>
+        ${
+          isAnnulee
+            ? '<span class="facture-status-cancel">ANNULÉE</span>'
+            : '<span class="facture-status-valid">VALIDÉE</span>'
+        }
+      </div>
+      ${
+        vente.clientNom
+          ? `
+      <div class="meta-row" style="margin-top: 4px; border-top: 1px dashed #cbd5e1; padding-top: 3px;">
+        <span style="color: #64748b;">Client :</span>
+        <span style="font-weight: 700; color: #0f172a;">${vente.clientNom} ${vente.clientTelephone ? `(${vente.clientTelephone})` : ''}</span>
+      </div>
       `
-        )
-        .join('')}
-    </tbody>
-  </table>
+          : ''
+      }
+    </div>
 
-  <div class="totals">
+    <table>
+      <thead>
+        <tr>
+          <th class="text-left col-des">DÉSIGNATION</th>
+          <th class="col-qty">QTÉ</th>
+          <th class="col-pu">P.U</th>
+          <th class="col-tot">TOTAL</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${vente.lignes
+          .map(
+            (l) => `
+          <tr>
+            <td class="col-des">
+              <div class="item-name">${l.designation}</div>
+              <div class="item-ref">Réf: ${l.reference} ${l.affectation ? `• ${l.affectation}` : ''}</div>
+            </td>
+            <td class="col-qty">${l.quantite}</td>
+            <td class="col-pu">${formatMontant(l.prixUnitaire, '')}</td>
+            <td class="col-tot">${formatMontant(l.totalLigne, '')}</td>
+          </tr>
+        `
+          )
+          .join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bottom-section">
     <div class="total-row grand-total">
       <span>TOTAL GÉNÉRAL :</span>
-      <span>${formatMontant(vente.totalVente, parametres.devise)}</span>
+      <span class="grand-total-amount">${formatMontant(vente.totalVente, parametres.devise)}</span>
     </div>
     <div class="total-row">
-      <span>Montant Reçu / Payé :</span>
-      <span class="font-bold">${formatMontant(vente.montantPayeClient, parametres.devise)}</span>
+      <span style="color: #475569;">Montant Payé :</span>
+      <span class="paid-amount">${formatMontant(vente.montantPayeClient, parametres.devise)}</span>
     </div>
     ${
       vente.resteAPayerClient > 0
         ? `
-      <div class="total-row" style="color: #990000; font-weight: bold;">
+      <div class="total-row due-amount">
         <span>Reste à Payer :</span>
         <span>${formatMontant(vente.resteAPayerClient, parametres.devise)}</span>
       </div>
     `
         : `
-      <div class="total-row" style="font-size: 10px; color: #006600;">
-        <span>Statut Règlement :</span>
-        <span>Soldé / Totalement Payé</span>
+      <div class="total-row settled-status">
+        <span>Règlement :</span>
+        <span>Soldé / Payé</span>
       </div>
     `
     }
-  </div>
 
-  <div class="footer">
-    ${parametres.texteFacture ? `<div>${parametres.texteFacture}</div>` : ''}
-    ${parametres.conditionsVente ? `<div style="font-style: italic; margin-top: 2px;">${parametres.conditionsVente}</div>` : ''}
-    <div style="margin-top: 4px; font-size: 8px; color: #777;">
-      Édité le ${date} à ${heure} • KOSPAM GESTION
+    <div class="footer">
+      ${parametres.texteFacture ? `<div class="footer-thanks">${parametres.texteFacture}</div>` : ''}
+      ${parametres.conditionsVente ? `<div class="footer-conditions">${parametres.conditionsVente}</div>` : ''}
+      <div class="footer-stamp">
+        Édité le ${date} ${heure} • ${format === 'TICKET_80MM' ? '80mm' : 'A6'}
+      </div>
     </div>
   </div>
 </body>

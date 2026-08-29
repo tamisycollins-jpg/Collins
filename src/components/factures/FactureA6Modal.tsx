@@ -135,61 +135,70 @@ export function FactureA6Modal({
         </div>
 
         {/* FACTURE SCREEN PREVIEW BOX */}
-        <div className="flex justify-center bg-slate-200 p-2 sm:p-4 rounded-xl overflow-x-auto">
+        <div className="flex justify-center bg-slate-200/80 p-3 sm:p-6 rounded-2xl overflow-x-auto">
           <div
             ref={printRef}
             id="printable-facture-a6"
-            className={`w-full bg-white text-slate-900 p-4 sm:p-5 shadow-lg rounded-md border border-slate-300 relative flex flex-col justify-between text-xs leading-tight ${
-              printFormat === 'TICKET_80MM' ? 'max-w-[320px]' : 'max-w-[390px]'
+            className={`w-full bg-white text-slate-900 px-5 py-6 shadow-xl rounded-xl border border-slate-200 relative flex flex-col justify-between ${
+              printFormat === 'TICKET_80MM' ? 'max-w-[340px] min-h-[480px]' : 'max-w-[420px] min-h-[580px]'
             }`}
-            style={{ minHeight: '480px' }}
           >
             {/* Watermark if Cancelled */}
             {isAnnulee && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-                <div className="transform -rotate-45 border-4 border-rose-600 text-rose-600 font-extrabold text-3xl sm:text-4xl px-6 py-2 rounded-lg tracking-widest uppercase opacity-85">
+                <div className="transform -rotate-45 border-4 border-rose-600 text-rose-600 font-black text-3xl sm:text-4xl px-6 py-2 rounded-xl tracking-widest uppercase opacity-85 bg-white/80 shadow-lg">
                   ANNULÉE
                 </div>
               </div>
             )}
 
-            <div>
+            {/* Top section: Header, Meta box, Items table */}
+            <div className="space-y-4">
               {/* Header */}
-              <div className="text-center pb-3 border-b border-slate-900/80">
-                <h1 className="text-base font-extrabold tracking-wide uppercase text-slate-950">
+              <div className="text-center space-y-1">
+                <h1 className="text-xl sm:text-2xl font-black tracking-wide uppercase text-slate-950">
                   {parametres.nomEntreprise || 'CLINIC AUTO'}
                 </h1>
                 {parametres.slogan && (
-                  <p className="text-[10px] text-slate-600 font-medium italic mt-0.5">
+                  <p className="text-xs text-slate-600 font-medium italic">
                     {parametres.slogan}
                   </p>
                 )}
-                <div className="text-[10px] text-slate-700 mt-1 space-y-0.5">
+                <div className="text-xs text-slate-600 space-y-0.5 pt-0.5">
                   {parametres.adresse && <p>{parametres.adresse}</p>}
                   {parametres.telephone && (
-                    <p className="font-semibold">Tél : {parametres.telephone}</p>
+                    <p className="text-slate-800 font-medium">Tél : {parametres.telephone}</p>
                   )}
-                  {parametres.email && <p>Email : {parametres.email}</p>}
+                  {parametres.email && (
+                    <p className="text-slate-800 font-medium">Email : {parametres.email}</p>
+                  )}
+                </div>
+                <div className="pt-2">
+                  <div className="w-full border-t border-slate-800" />
                 </div>
               </div>
 
-              {/* Invoice Meta */}
-              <div className="my-2.5 p-2 bg-slate-50 border border-slate-200 rounded text-[11px]">
-                <div className="flex justify-between items-center font-bold text-slate-950">
-                  <span>FACTURE N°</span>
-                  <span className="font-mono text-xs text-blue-900">{vente.numeroFacture}</span>
+              {/* Invoice Meta Box */}
+              <div className="p-3 bg-slate-50/70 border border-slate-200/90 rounded-xl text-xs space-y-1.5 shadow-2xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-slate-950 uppercase tracking-wide">FACTURE N°</span>
+                  <span className="font-mono font-black text-sm text-blue-900">
+                    {vente.numeroFacture}
+                  </span>
                 </div>
-                <div className="flex justify-between items-center text-slate-600 mt-1 text-[10px]">
-                  <span>Date : {date} à {heure}</span>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-600">
+                    Date : {date} à {heure}
+                  </span>
                   {vente.status === 'ANNULEE' ? (
-                    <span className="text-rose-600 font-bold">ANNULÉE</span>
+                    <span className="text-rose-600 font-black uppercase text-xs">ANNULÉE</span>
                   ) : (
-                    <span className="text-emerald-700 font-semibold">VALIDÉE</span>
+                    <span className="text-emerald-700 font-bold uppercase text-xs">VALIDÉE</span>
                   )}
                 </div>
                 {vente.clientNom && (
-                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 flex justify-between text-[10px]">
-                    <span className="text-slate-600">Client :</span>
+                  <div className="pt-1.5 border-t border-slate-200 flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Client :</span>
                     <span className="font-bold text-slate-900">
                       {vente.clientNom} {vente.clientTelephone ? `(${vente.clientTelephone})` : ''}
                     </span>
@@ -198,33 +207,35 @@ export function FactureA6Modal({
               </div>
 
               {/* Articles Table */}
-              <div className="my-2">
+              <div className="pt-1">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-900 text-[10px] uppercase font-bold text-slate-800">
-                      <th className="py-1">Désignation</th>
-                      <th className="py-1 text-center w-8">Qté</th>
-                      <th className="py-1 text-right w-16">P.U</th>
-                      <th className="py-1 text-right w-18">Total</th>
+                    <tr className="border-b-2 border-slate-900 text-xs uppercase font-extrabold text-slate-900">
+                      <th className="py-2 text-left">DÉSIGNATION</th>
+                      <th className="py-2 text-center w-12">QTÉ</th>
+                      <th className="py-2 text-right w-20">P.U</th>
+                      <th className="py-2 text-right w-24">TOTAL</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-[10px]">
+                  <tbody className="divide-y divide-slate-100 text-xs">
                     {vente.lignes.map((ligne, idx) => (
                       <tr key={ligne.id || idx}>
-                        <td className="py-1.5 pr-1">
-                          <div className="font-bold text-slate-900">{ligne.designation}</div>
-                          <div className="text-[9px] text-slate-500 font-mono">
+                        <td className="py-2 pr-2 align-top">
+                          <div className="font-black text-slate-950 uppercase text-xs leading-snug">
+                            {ligne.designation}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono uppercase mt-0.5">
                             Réf: {ligne.reference}
                             {ligne.affectation ? ` • ${ligne.affectation}` : ''}
                           </div>
                         </td>
-                        <td className="py-1.5 text-center font-semibold text-slate-900">
+                        <td className="py-2 text-center font-extrabold text-slate-900 align-top text-xs">
                           {ligne.quantite}
                         </td>
-                        <td className="py-1.5 text-right font-medium text-slate-700 whitespace-nowrap">
+                        <td className="py-2 text-right font-medium text-slate-700 whitespace-nowrap align-top text-xs">
                           {formatMontant(ligne.prixUnitaire, '')}
                         </td>
-                        <td className="py-1.5 text-right font-bold text-slate-950 whitespace-nowrap">
+                        <td className="py-2 text-right font-black text-slate-950 whitespace-nowrap align-top text-xs">
                           {formatMontant(ligne.totalLigne, '')}
                         </td>
                       </tr>
@@ -234,45 +245,50 @@ export function FactureA6Modal({
               </div>
             </div>
 
-            {/* Totals & Footer */}
-            <div className="mt-3 pt-2 border-t-2 border-slate-900">
-              <div className="space-y-1 text-[11px]">
-                <div className="flex justify-between items-center font-extrabold text-sm text-slate-950">
-                  <span>TOTAL GÉNÉRAL :</span>
-                  <span className="font-mono text-base text-slate-950">
+            {/* Bottom section: Flexible spacer pushes Totals & Footer to the bottom */}
+            <div className="mt-8 pt-3 border-t-2 border-slate-950 space-y-3">
+              {/* Totals Breakdown */}
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-black text-base uppercase text-slate-950 tracking-tight">
+                    TOTAL GÉNÉRAL :
+                  </span>
+                  <span className="font-black text-lg text-slate-950 font-mono">
                     {formatMontant(vente.totalVente, parametres.devise)}
                   </span>
                 </div>
-                <div className="flex justify-between items-center text-slate-700">
+
+                <div className="flex justify-between items-center text-slate-600">
                   <span>Montant Payé :</span>
-                  <span className="font-semibold text-emerald-700">
+                  <span className="font-bold text-emerald-700 text-sm">
                     {formatMontant(vente.montantPayeClient, parametres.devise)}
                   </span>
                 </div>
+
                 {vente.resteAPayerClient > 0 ? (
-                  <div className="flex justify-between items-center text-rose-600 font-bold">
+                  <div className="flex justify-between items-center text-rose-700 font-bold">
                     <span>Reste à Payer :</span>
-                    <span className="font-mono">
+                    <span className="font-black font-mono">
                       {formatMontant(vente.resteAPayerClient, parametres.devise)}
                     </span>
                   </div>
                 ) : (
-                  <div className="flex justify-between items-center text-emerald-800 font-medium text-[10px]">
+                  <div className="flex justify-between items-center text-emerald-800 font-bold">
                     <span>Règlement :</span>
-                    <span className="font-semibold">Soldé / Payé</span>
+                    <span>Soldé / Payé</span>
                   </div>
                 )}
               </div>
 
-              {/* Invoice Note & Footer */}
-              <div className="mt-3 pt-2 border-t border-slate-200 text-center text-[9px] text-slate-500 space-y-0.5">
+              {/* Invoice Footer / Legal text */}
+              <div className="pt-2 border-t border-slate-200 text-center space-y-0.5">
                 {parametres.texteFacture && (
-                  <p className="font-medium text-slate-700">{parametres.texteFacture}</p>
+                  <p className="font-bold text-xs text-slate-700">{parametres.texteFacture}</p>
                 )}
                 {parametres.conditionsVente && (
-                  <p className="italic text-[8px]">{parametres.conditionsVente}</p>
+                  <p className="italic text-[10px] text-slate-500">{parametres.conditionsVente}</p>
                 )}
-                <p className="text-[8px] text-slate-400 font-mono mt-1">
+                <p className="text-[9px] text-slate-400 font-mono pt-1">
                   Édité le {date} {heure} • {printFormat}
                 </p>
               </div>
